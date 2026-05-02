@@ -2366,8 +2366,6 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload),
       });
