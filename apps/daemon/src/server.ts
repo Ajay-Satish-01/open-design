@@ -41,6 +41,7 @@ import {
 } from './media-models.js';
 import { readMaskedConfig, writeConfig } from './media-config.js';
 import { readAppConfig, writeAppConfig } from './app-config.js';
+import { isLocalSameOrigin } from './local-origin.js';
 import {
   decodeMultipartFilename,
   deleteProjectFile,
@@ -1360,9 +1361,12 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     }
   });
 
-  app.get('/api/app-config', async (_req, res) => {
+  app.get('/api/app-config', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
     try {
-      const config = await readAppConfig(PROJECT_ROOT);
+      const config = await readAppConfig(RUNTIME_DATA_DIR);
       res.json({ config });
     } catch (err) {
       res.status(500).json({ error: String(err && err.message ? err.message : err) });
@@ -1370,8 +1374,11 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   });
 
   app.put('/api/app-config', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
     try {
-      const config = await writeAppConfig(PROJECT_ROOT, req.body);
+      const config = await writeAppConfig(RUNTIME_DATA_DIR, req.body);
       res.json({ config });
     } catch (err) {
       res.status(500).json({ error: String(err && err.message ? err.message : err) });
@@ -2327,24 +2334,6 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-}
-
-function isLocalSameOrigin(req, port) {
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
-  ]);
-  const allowedOrigins = new Set([
-    `http://127.0.0.1:${port}`,
-    `http://localhost:${port}`,
-    `http://[::1]:${port}`,
-  ]);
-  const host = String(req.headers.host || '');
-  if (!allowedHosts.has(host)) return false;
-  const origin = req.headers.origin;
-  if (origin == null || origin === '') return true;
-  return allowedOrigins.has(String(origin));
 }
 
 function sanitizeSlug(s) {
