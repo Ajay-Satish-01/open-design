@@ -14,7 +14,7 @@ import {
 } from "vitest";
 
 import { readAppConfig, writeAppConfig } from "../src/app-config.js";
-import { isLocalSameOrigin } from "../src/local-origin.js";
+import { isLocalSameOrigin } from "../src/server.js";
 
 describe("app-config", () => {
   let dataDir: string;
