@@ -17,6 +17,8 @@ import {
   sanitizeCustomModel,
 } from './agents.js';
 import { listSkills } from './skills.js';
+import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
+import { syncCommunityPets } from './community-pets-sync.js';
 import { listDesignSystems, readDesignSystem } from './design-systems.js';
 import { attachAcpSession } from './acp.js';
 import { attachPiRpcSession } from './pi-rpc.js';
@@ -58,6 +60,7 @@ import { validateArtifactManifestInput } from './artifact-manifest.js';
 import { readCurrentAppVersionInfo } from './app-version.js';
 import {
   deleteConversation,
+  deletePreviewComment,
   deleteProject as dbDeleteProject,
   deleteTemplate,
   getConversation,
@@ -73,15 +76,18 @@ import {
   listDeployments,
   listLatestProjectRunStatuses,
   listMessages,
+  listPreviewComments,
   listProjects,
   listTabs,
   listTemplates,
   openDatabase,
   setTabs,
   updateConversation,
+  updatePreviewCommentStatus,
   updateProject,
   upsertDeployment,
   upsertMessage,
+  upsertPreviewComment,
 } from './db.js';
 import {
   buildDeployFileSet,
@@ -113,6 +119,88 @@ export function resolveProjectRoot(moduleDir: string): string {
 
 const PROJECT_ROOT = resolveProjectRoot(__dirname);
 const RESOURCE_ROOT_ENV = 'OD_RESOURCE_ROOT';
+
+export function normalizeCommentAttachments(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((raw, index) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const filePath = cleanString(raw.filePath);
+      const elementId = cleanString(raw.elementId);
+      const selector = cleanString(raw.selector);
+      const label = cleanString(raw.label);
+      const comment = cleanString(raw.comment);
+      if (!filePath || !elementId || !selector || !comment) return null;
+      return {
+        id: cleanString(raw.id) || `comment-${index + 1}`,
+        order: Number.isFinite(raw.order)
+          ? Math.max(1, Math.round(raw.order))
+          : index + 1,
+        filePath,
+        elementId,
+        selector,
+        label,
+        comment,
+        currentText: compactString(raw.currentText, 160),
+        pagePosition: normalizeAttachmentPosition(raw.pagePosition),
+        htmlHint: compactString(raw.htmlHint, 180),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.order - b.order);
+}
+
+export function renderCommentAttachmentHint(commentAttachments) {
+  if (!commentAttachments.length) return '';
+  const lines = [
+    '',
+    '',
+    '<attached-preview-comments>',
+    'Scope: edit the target element by default. Use the smallest necessary parent wrapper only if the target cannot satisfy the comment. Preserve stable ids and unrelated siblings.',
+  ];
+  for (const item of commentAttachments) {
+    lines.push(
+      '',
+      `${item.order}. ${item.elementId}`,
+      `file: ${item.filePath}`,
+      `selector: ${item.selector}`,
+      `label: ${item.label || '(unlabeled)'}`,
+      `position: ${formatAttachmentPosition(item.pagePosition)}`,
+      `currentText: ${item.currentText || '(empty)'}`,
+      `htmlHint: ${item.htmlHint || '(none)'}`,
+      `comment: ${item.comment}`,
+    );
+  }
+  lines.push('</attached-preview-comments>');
+  return lines.join('\n');
+}
+
+function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function compactString(value, max) {
+  const text = cleanString(value).replace(/\s+/g, ' ');
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function normalizeAttachmentPosition(input) {
+  const value = input && typeof input === 'object' ? input : {};
+  return {
+    x: finiteAttachmentNumber(value.x),
+    y: finiteAttachmentNumber(value.y),
+    width: finiteAttachmentNumber(value.width),
+    height: finiteAttachmentNumber(value.height),
+  };
+}
+
+function finiteAttachmentNumber(value) {
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function formatAttachmentPosition(position) {
+  return `x=${position.x}, y=${position.y}, width=${position.width}, height=${position.height}`;
+}
 
 function isPathWithin(base, target) {
   const relativePath = path.relative(path.resolve(base), path.resolve(target));
@@ -207,6 +295,15 @@ const FRAMES_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
   'frames',
   path.join(PROJECT_ROOT, 'assets', 'frames'),
+);
+// Curated pets baked into the repo via `scripts/bake-community-pets.ts`.
+// `listCodexPets` scans this in addition to `~/.codex/pets/` so the
+// "Recently hatched" grid is non-empty out-of-the-box and users do not
+// need to hit the "Download community pets" button to try a few pets.
+const BUNDLED_PETS_DIR = resolveDaemonResourceDir(
+  DAEMON_RESOURCE_ROOT,
+  'community-pets',
+  path.join(PROJECT_ROOT, 'assets', 'community-pets'),
 );
 const PROMPT_TEMPLATES_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
@@ -812,6 +909,81 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     res.json({ message: saved });
   });
 
+  // ---- Preview comments ----------------------------------------------------
+
+  app.get('/api/projects/:id/conversations/:cid/comments', (req, res) => {
+    const conv = getConversation(db, req.params.cid);
+    if (!conv || conv.projectId !== req.params.id) {
+      return res.status(404).json({ error: 'conversation not found' });
+    }
+    res.json({
+      comments: listPreviewComments(db, req.params.id, req.params.cid),
+    });
+  });
+
+  app.post('/api/projects/:id/conversations/:cid/comments', (req, res) => {
+    const conv = getConversation(db, req.params.cid);
+    if (!conv || conv.projectId !== req.params.id) {
+      return res.status(404).json({ error: 'conversation not found' });
+    }
+    try {
+      const comment = upsertPreviewComment(
+        db,
+        req.params.id,
+        req.params.cid,
+        req.body || {},
+      );
+      updateProject(db, req.params.id, {});
+      res.json({ comment });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || err) });
+    }
+  });
+
+  app.patch(
+    '/api/projects/:id/conversations/:cid/comments/:commentId',
+    (req, res) => {
+      const conv = getConversation(db, req.params.cid);
+      if (!conv || conv.projectId !== req.params.id) {
+        return res.status(404).json({ error: 'conversation not found' });
+      }
+      try {
+        const comment = updatePreviewCommentStatus(
+          db,
+          req.params.id,
+          req.params.cid,
+          req.params.commentId,
+          req.body?.status,
+        );
+        if (!comment)
+          return res.status(404).json({ error: 'comment not found' });
+        updateProject(db, req.params.id, {});
+        res.json({ comment });
+      } catch (err) {
+        res.status(400).json({ error: String(err?.message || err) });
+      }
+    },
+  );
+
+  app.delete(
+    '/api/projects/:id/conversations/:cid/comments/:commentId',
+    (req, res) => {
+      const conv = getConversation(db, req.params.cid);
+      if (!conv || conv.projectId !== req.params.id) {
+        return res.status(404).json({ error: 'conversation not found' });
+      }
+      const ok = deletePreviewComment(
+        db,
+        req.params.id,
+        req.params.cid,
+        req.params.commentId,
+      );
+      if (!ok) return res.status(404).json({ error: 'comment not found' });
+      updateProject(db, req.params.id, {});
+      res.json({ ok: true });
+    },
+  );
+
   // ---- Tabs -----------------------------------------------------------------
 
   app.get('/api/projects/:id/tabs', (req, res) => {
@@ -940,6 +1112,80 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       res.json(serializable);
     } catch (err) {
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Codex hatch-pet registry — pets packaged by the upstream `hatch-pet`
+  // skill under `${CODEX_HOME:-$HOME/.codex}/pets/`. Surfaced so the web
+  // pet settings can offer one-click adoption of recently-hatched pets.
+  app.get('/api/codex-pets', async (_req, res) => {
+    try {
+      const result = await listCodexPets({
+        baseUrl: '',
+        bundledRoot: BUNDLED_PETS_DIR,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // One-click community sync. Hits the Codex Pet Share + j20 Hatchery
+  // catalogs and drops every pet into `${CODEX_HOME:-$HOME/.codex}/pets/`
+  // so `GET /api/codex-pets` (and the web Pet settings) pick them up
+  // immediately. The body is intentionally tiny — we keep the heavier
+  // tuning knobs (`--limit`, `--concurrency`) on the CLI script and
+  // only surface `force` + `source` here.
+  app.post('/api/codex-pets/sync', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const sourceRaw = typeof body.source === 'string' ? body.source : 'all';
+      const source =
+        sourceRaw === 'petshare' || sourceRaw === 'hatchery'
+          ? sourceRaw
+          : 'all';
+      const result = await syncCommunityPets({
+        source,
+        force: Boolean(body.force),
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.get('/api/codex-pets/:id/spritesheet', async (req, res) => {
+    try {
+      const sheet = await readCodexPetSpritesheet(req.params.id, {
+        bundledRoot: BUNDLED_PETS_DIR,
+      });
+      if (!sheet) {
+        return res
+          .status(404)
+          .type('text/plain')
+          .send('codex pet spritesheet not found');
+      }
+      const mime =
+        sheet.ext === 'webp'
+          ? 'image/webp'
+          : sheet.ext === 'gif'
+            ? 'image/gif'
+            : 'image/png';
+      res.type(mime);
+      // Same-origin callers (the web app proxies `/api/*` through to
+      // the daemon, so PetSettings adoption fetches arrive same-origin)
+      // do not need any CORS header here. We only echo
+      // `Access-Control-Allow-Origin` for sandboxed iframes / data:
+      // URIs (Origin: null) which need it to draw the bytes onto a
+      // canvas without tainting. Local pet bytes should not be exposed
+      // to arbitrary third-party origins via a wildcard ACAO.
+      if (req.headers.origin === 'null') {
+        res.setHeader('Access-Control-Allow-Origin', 'null');
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.sendFile(sheet.absPath);
+    } catch (err) {
+      res.status(500).type('text/plain').send(String(err));
     }
   });
 
@@ -1833,6 +2079,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       skillId,
       designSystemId,
       attachments = [],
+      commentAttachments = [],
       model,
       reasoning,
     } = chatBody;
@@ -1853,7 +2100,12 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       );
     if (!def.bin)
       return design.runs.fail(run, 'AGENT_UNAVAILABLE', 'agent has no binary');
-    if (typeof message !== 'string' || !message.trim()) {
+    const safeCommentAttachments =
+      normalizeCommentAttachments(commentAttachments);
+    if (
+      (typeof message !== 'string' || !message.trim()) &&
+      safeCommentAttachments.length === 0
+    ) {
       return design.runs.fail(run, 'BAD_REQUEST', 'message required');
     }
     if (run.cancelRequested || design.runs.isTerminal(run.status)) return;
@@ -1922,6 +2174,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     const attachmentHint = safeAttachments.length
       ? `\n\nAttached project files: ${safeAttachments.map((p) => `\`${p}\``).join(', ')}`
       : '';
+    const commentHint = renderCommentAttachmentHint(safeCommentAttachments);
     const daemonSystemPrompt = await composeDaemonSystemPrompt({
       projectId,
       skillId,
@@ -1937,7 +2190,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         : cwdHint
           ? `# Instructions${cwdHint}\n\n---\n`
           : '',
-      `# User request\n\n${message}${attachmentHint}`,
+      `# User request\n\n${message || '(No extra typed instruction.)'}${attachmentHint}${commentHint}`,
       safeImages.length
         ? `\n\n${safeImages.map((p) => `@${p}`).join(' ')}`
         : '',
@@ -2414,14 +2667,43 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     }
   });
 
-  const server = app.listen(port, () => {
-    resolvedPort = server.address().port;
-    if (!returnServer) {
-      console.log(`[od] daemon listening on http://127.0.0.1:${resolvedPort}`);
-    }
+  // Wait for `listen` to bind so callers always see the resolved URL —
+  // critical when port=0 (ephemeral port) and when the embedding sidecar
+  // needs to advertise the port to a parent process before any request
+  // can flow. Three callers depend on this contract:
+  //   - `apps/daemon/src/cli.ts`            → expects a `url` string
+  //   - `apps/daemon/sidecar/server.ts`     → expects `{ url, server }`
+  //   - `apps/daemon/tests/version-route.test.ts` → expects `{ url, server }`
+  return await new Promise((resolve, reject) => {
+    const server = app.listen(port, () => {
+      const address = server.address();
+      // `address()` can in theory return `string | AddressInfo | null`. For
+      // a TCP listener it's always `AddressInfo` with a `.port` — the guard
+      // is belt-and-braces so an unexpected null never silently produces a
+      // `http://127.0.0.1:0` URL that callers would then try to fetch.
+      const boundPort =
+        address && typeof address === 'object' ? address.port : null;
+      if (!boundPort) {
+        reject(
+          new Error(
+            `[od] daemon failed to resolve listening port (address=${JSON.stringify(address)})`,
+          ),
+        );
+        return;
+      }
+      resolvedPort = boundPort;
+      const url = `http://127.0.0.1:${resolvedPort}`;
+      if (!returnServer) {
+        console.log(`[od] daemon listening on ${url}`);
+      }
+      resolve(returnServer ? { url, server } : url);
+    });
+    // `app.listen` throws synchronously when the port is already in use on
+    // some Node versions, but emits an `error` event on others (and for
+    // EACCES / EADDRNOTAVAIL even on the same Node). Wire the event so the
+    // returned Promise always settles instead of hanging forever.
+    server.on('error', reject);
   });
-
-  if (returnServer) return server;
 }
 
 function randomId() {

@@ -4,6 +4,7 @@ export * from './tasks';
 export * from './api/app-config';
 export * from './api/artifacts';
 export * from './api/chat';
+export * from './api/comments';
 export * from './api/files';
 export * from './api/projects';
 export * from './api/proxy';
