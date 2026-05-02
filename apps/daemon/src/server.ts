@@ -40,6 +40,7 @@ import {
   VIDEO_MODELS,
 } from './media-models.js';
 import { readMaskedConfig, writeConfig } from './media-config.js';
+import { readAppConfig, writeAppConfig } from './app-config.js';
 import {
   decodeMultipartFilename,
   deleteProjectFile,
@@ -1356,6 +1357,24 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     } catch (err) {
       const status = typeof err?.status === 'number' ? err.status : 400;
       res.status(status).json({ error: String(err && err.message ? err.message : err) });
+    }
+  });
+
+  app.get('/api/app-config', async (_req, res) => {
+    try {
+      const config = await readAppConfig(PROJECT_ROOT);
+      res.json({ config });
+    } catch (err) {
+      res.status(500).json({ error: String(err && err.message ? err.message : err) });
+    }
+  });
+
+  app.put('/api/app-config', async (req, res) => {
+    try {
+      const config = await writeAppConfig(PROJECT_ROOT, req.body);
+      res.json({ config });
+    } catch (err) {
+      res.status(500).json({ error: String(err && err.message ? err.message : err) });
     }
   });
 

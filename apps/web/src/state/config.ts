@@ -1,3 +1,4 @@
+import type { AppConfigPrefs } from '@open-design/contracts';
 import type { AppConfig, MediaProviderCredentials } from '../types';
 
 const STORAGE_KEY = 'open-design:config';
@@ -61,6 +62,36 @@ export async function syncMediaProvidersToDaemon(
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ providers, force: Boolean(options?.force) }),
+    });
+  } catch {
+    // Daemon offline; localStorage keeps the user's copy for the next save.
+  }
+}
+
+export async function fetchDaemonConfig(): Promise<AppConfigPrefs | null> {
+  try {
+    const res = await fetch('/api/app-config');
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.config ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function syncConfigToDaemon(config: AppConfig): Promise<void> {
+  const prefs: AppConfigPrefs = {
+    onboardingCompleted: config.onboardingCompleted,
+    agentId: config.agentId,
+    agentModels: config.agentModels,
+    skillId: config.skillId,
+    designSystemId: config.designSystemId,
+  };
+  try {
+    await fetch('/api/app-config', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(prefs),
     });
   } catch {
     // Daemon offline; localStorage keeps the user's copy for the next save.

@@ -13,9 +13,11 @@ import {
 } from './providers/registry';
 import { navigate, useRoute } from './router';
 import {
+  fetchDaemonConfig,
   hasAnyConfiguredProvider,
   loadConfig,
   saveConfig,
+  syncConfigToDaemon,
   syncMediaProvidersToDaemon,
 } from './state/config';
 import {
@@ -62,7 +64,7 @@ export function App() {
       const alive = await daemonIsLive();
       if (cancelled) return;
       setDaemonLive(alive);
-      const [agentList, skillList, dsList, projectList, templateList, promptTemplateList, versionInfo] =
+      const [agentList, skillList, dsList, projectList, templateList, promptTemplateList, versionInfo, daemonConfig] =
         await Promise.all([
           alive ? fetchAgents() : Promise.resolve([] as AgentInfo[]),
           alive ? fetchSkills() : Promise.resolve([] as SkillSummary[]),
@@ -73,6 +75,7 @@ export function App() {
           alive ? listTemplates() : Promise.resolve([] as ProjectTemplate[]),
           alive ? fetchPromptTemplates() : Promise.resolve([] as PromptTemplateSummary[]),
           alive ? fetchAppVersionInfo() : Promise.resolve(null),
+          alive ? fetchDaemonConfig() : Promise.resolve(null),
         ]);
       if (cancelled) return;
       setAgents(agentList);
@@ -85,6 +88,27 @@ export function App() {
 
       setConfig((prev) => {
         const next = { ...prev };
+
+        // Merge daemon-persisted config — daemon values win for the fields
+        // it tracks so that the choice survives origin/storage resets.
+        if (daemonConfig) {
+          if (daemonConfig.onboardingCompleted != null) {
+            next.onboardingCompleted = daemonConfig.onboardingCompleted;
+          }
+          if (daemonConfig.agentId !== undefined) {
+            next.agentId = daemonConfig.agentId;
+          }
+          if (daemonConfig.skillId !== undefined) {
+            next.skillId = daemonConfig.skillId;
+          }
+          if (daemonConfig.designSystemId !== undefined) {
+            next.designSystemId = daemonConfig.designSystemId;
+          }
+          if (daemonConfig.agentModels) {
+            next.agentModels = { ...(next.agentModels ?? {}), ...daemonConfig.agentModels };
+          }
+        }
+
         if (alive) {
           if (!next.agentId) {
             const firstAvailable = agentList.find((a) => a.available);
@@ -100,6 +124,12 @@ export function App() {
         saveConfig(next);
         if (alive && hasAnyConfiguredProvider(next.mediaProviders)) {
           void syncMediaProvidersToDaemon(next.mediaProviders);
+        }
+        // Migrate localStorage prefs to daemon on first boot with the new
+        // endpoint. If daemon already had values the merge above used them;
+        // writing back is idempotent and ensures both sides stay in sync.
+        if (alive) {
+          void syncConfigToDaemon(next);
         }
 
         // Pop the onboarding modal only on the first run. Once the user has
@@ -135,6 +165,7 @@ export function App() {
     const withOnboarding: AppConfig = { ...next, onboardingCompleted: true };
     saveConfig(withOnboarding);
     void syncMediaProvidersToDaemon(withOnboarding.mediaProviders, { force: true });
+    void syncConfigToDaemon(withOnboarding);
     setConfig(withOnboarding);
     setSettingsOpen(false);
   }, []);
@@ -152,6 +183,7 @@ export function App() {
     (agentId: string) => {
       const next = { ...config, agentId };
       saveConfig(next);
+      void syncConfigToDaemon(next);
       setConfig(next);
     },
     [config],
@@ -164,6 +196,7 @@ export function App() {
       const nextAgentModels = { ...(config.agentModels ?? {}), [agentId]: merged };
       const next = { ...config, agentModels: nextAgentModels };
       saveConfig(next);
+      void syncConfigToDaemon(next);
       setConfig(next);
     },
     [config],
@@ -173,6 +206,7 @@ export function App() {
     (designSystemId: string) => {
       const next = { ...config, designSystemId };
       saveConfig(next);
+      void syncConfigToDaemon(next);
       setConfig(next);
     },
     [config],
@@ -359,6 +393,7 @@ export function App() {
             if (settingsWelcome && !config.onboardingCompleted) {
               const next: AppConfig = { ...config, onboardingCompleted: true };
               saveConfig(next);
+              void syncConfigToDaemon(next);
               setConfig(next);
             }
             setSettingsOpen(false);
