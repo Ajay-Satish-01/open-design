@@ -7,9 +7,9 @@
 // This survives browser storage resets and origin changes so onboarding
 // and agent selection don't reappear unexpectedly.
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-import path from "node:path";
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import path from 'node:path';
 
 export interface AgentModelPrefs {
   model?: string;
@@ -25,25 +25,25 @@ export interface AppConfigPrefs {
 }
 
 const ALLOWED_KEYS: ReadonlySet<keyof AppConfigPrefs> = new Set([
-  "onboardingCompleted",
-  "agentId",
-  "agentModels",
-  "skillId",
-  "designSystemId",
+  'onboardingCompleted',
+  'agentId',
+  'agentModels',
+  'skillId',
+  'designSystemId',
 ] as const);
 
 function configFile(dataDir: string): string {
-  return path.join(dataDir, "app-config.json");
+  return path.join(dataDir, 'app-config.json');
 }
 
-const AGENT_MODEL_KEYS: ReadonlySet<string> = new Set(["model", "reasoning"]);
+const AGENT_MODEL_KEYS: ReadonlySet<string> = new Set(['model', 'reasoning']);
 
 function isValidAgentModelEntry(v: unknown): v is AgentModelPrefs {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
   const obj = v as Record<string, unknown>;
   for (const k of Object.keys(obj)) {
     if (!AGENT_MODEL_KEYS.has(k)) return false;
-    if (obj[k] !== undefined && typeof obj[k] !== "string") return false;
+    if (obj[k] !== undefined && typeof obj[k] !== 'string') return false;
   }
   return true;
 }
@@ -52,10 +52,10 @@ function validateAgentModels(
   raw: unknown,
 ): Record<string, AgentModelPrefs> | undefined {
   if (raw === undefined || raw === null) return undefined;
-  if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const result: Record<string, AgentModelPrefs> = Object.create(null);
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (k === "__proto__" || k === "constructor") continue;
+    if (k === '__proto__' || k === 'constructor') continue;
     if (isValidAgentModelEntry(v)) {
       result[k] = v;
     }
@@ -68,15 +68,15 @@ function applyConfigValue(
   key: keyof AppConfigPrefs,
   value: unknown,
 ): void {
-  if (key === "onboardingCompleted") {
-    if (typeof value === "boolean") target[key] = value;
+  if (key === 'onboardingCompleted') {
+    if (typeof value === 'boolean') target[key] = value;
     return;
   }
-  if (key === "agentId" || key === "skillId" || key === "designSystemId") {
-    if (typeof value === "string" || value === null) target[key] = value;
+  if (key === 'agentId' || key === 'skillId' || key === 'designSystemId') {
+    if (typeof value === 'string' || value === null) target[key] = value;
     return;
   }
-  if (key === "agentModels") {
+  if (key === 'agentModels') {
     const validated = validateAgentModels(value);
     if (validated !== undefined) {
       target[key] = validated;
@@ -98,18 +98,18 @@ function filterAllowedKeys(obj: Record<string, unknown>): AppConfigPrefs {
 
 export async function readAppConfig(dataDir: string): Promise<AppConfigPrefs> {
   try {
-    const raw = await readFile(configFile(dataDir), "utf8");
+    const raw = await readFile(configFile(dataDir), 'utf8');
     const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return filterAllowedKeys(parsed as Record<string, unknown>);
     }
-    console.warn("[app-config] Invalid shape in config file, returning empty");
+    console.warn('[app-config] Invalid shape in config file, returning empty');
     return {};
   } catch (err: unknown) {
     const e = err as { code?: string; name?: string; message?: string };
-    if (e.code === "ENOENT") return {};
-    if (e.name === "SyntaxError") {
-      console.error("[app-config] Corrupted JSON, returning empty:", e.message);
+    if (e.code === 'ENOENT') return {};
+    if (e.name === 'SyntaxError') {
+      console.error('[app-config] Corrupted JSON, returning empty:', e.message);
       return {};
     }
     throw err;
@@ -146,8 +146,8 @@ async function doWrite(
   }
   const file = configFile(dataDir);
   await mkdir(path.dirname(file), { recursive: true });
-  const tmp = file + "." + randomBytes(4).toString("hex") + ".tmp";
-  await writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
+  const tmp = file + '.' + randomBytes(4).toString('hex') + '.tmp';
+  await writeFile(tmp, JSON.stringify(next, null, 2), 'utf8');
   await rename(tmp, file);
   return next as AppConfigPrefs;
 }

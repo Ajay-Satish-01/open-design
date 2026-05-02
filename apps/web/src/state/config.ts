@@ -17,10 +17,26 @@ export const DEFAULT_CONFIG: AppConfig = {
 };
 
 /** Well-known providers with pre-filled base URLs. */
-export const KNOWN_PROVIDERS: Array<{ label: string; baseUrl: string; model: string }> = [
-  { label: 'Anthropic (Claude)', baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-5' },
-  { label: 'MiMo (Xiaomi) — OpenAI', baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', model: 'mimo-v2.5-pro' },
-  { label: 'MiMo (Xiaomi) — Anthropic', baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic', model: 'mimo-v2.5-pro' },
+export const KNOWN_PROVIDERS: Array<{
+  label: string;
+  baseUrl: string;
+  model: string;
+}> = [
+  {
+    label: 'Anthropic (Claude)',
+    baseUrl: 'https://api.anthropic.com',
+    model: 'claude-sonnet-4-5',
+  },
+  {
+    label: 'MiMo (Xiaomi) — OpenAI',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+    model: 'mimo-v2.5-pro',
+  },
+  {
+    label: 'MiMo (Xiaomi) — Anthropic',
+    baseUrl: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+    model: 'mimo-v2.5-pro',
+  },
 ];
 
 export function loadConfig(): AppConfig {

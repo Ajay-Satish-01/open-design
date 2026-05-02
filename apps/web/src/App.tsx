@@ -49,8 +49,12 @@ export function App() {
   const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
-  const [promptTemplates, setPromptTemplates] = useState<PromptTemplateSummary[]>([]);
-  const [appVersionInfo, setAppVersionInfo] = useState<AppVersionInfo | null>(null);
+  const [promptTemplates, setPromptTemplates] = useState<
+    PromptTemplateSummary[]
+  >([]);
+  const [appVersionInfo, setAppVersionInfo] = useState<AppVersionInfo | null>(
+    null,
+  );
   // Goes false once the bootstrap effect has finished its initial round of
   // fetches. The entry view uses this to show shimmer / skeleton states
   // instead of an "empty" page that flickers before data lands.
@@ -64,19 +68,29 @@ export function App() {
       const alive = await daemonIsLive();
       if (cancelled) return;
       setDaemonLive(alive);
-      const [agentList, skillList, dsList, projectList, templateList, promptTemplateList, versionInfo, daemonConfig] =
-        await Promise.all([
-          alive ? fetchAgents() : Promise.resolve([] as AgentInfo[]),
-          alive ? fetchSkills() : Promise.resolve([] as SkillSummary[]),
-          alive
-            ? fetchDesignSystems()
-            : Promise.resolve([] as DesignSystemSummary[]),
-          alive ? listProjects() : Promise.resolve([] as Project[]),
-          alive ? listTemplates() : Promise.resolve([] as ProjectTemplate[]),
-          alive ? fetchPromptTemplates() : Promise.resolve([] as PromptTemplateSummary[]),
-          alive ? fetchAppVersionInfo() : Promise.resolve(null),
-          alive ? fetchDaemonConfig() : Promise.resolve(null),
-        ]);
+      const [
+        agentList,
+        skillList,
+        dsList,
+        projectList,
+        templateList,
+        promptTemplateList,
+        versionInfo,
+        daemonConfig,
+      ] = await Promise.all([
+        alive ? fetchAgents() : Promise.resolve([] as AgentInfo[]),
+        alive ? fetchSkills() : Promise.resolve([] as SkillSummary[]),
+        alive
+          ? fetchDesignSystems()
+          : Promise.resolve([] as DesignSystemSummary[]),
+        alive ? listProjects() : Promise.resolve([] as Project[]),
+        alive ? listTemplates() : Promise.resolve([] as ProjectTemplate[]),
+        alive
+          ? fetchPromptTemplates()
+          : Promise.resolve([] as PromptTemplateSummary[]),
+        alive ? fetchAppVersionInfo() : Promise.resolve(null),
+        alive ? fetchDaemonConfig() : Promise.resolve(null),
+      ]);
       if (cancelled) return;
       setAgents(agentList);
       setSkills(skillList);
@@ -105,7 +119,10 @@ export function App() {
             next.designSystemId = daemonConfig.designSystemId;
           }
           if (daemonConfig.agentModels) {
-            next.agentModels = { ...(next.agentModels ?? {}), ...daemonConfig.agentModels };
+            next.agentModels = {
+              ...(next.agentModels ?? {}),
+              ...daemonConfig.agentModels,
+            };
           }
         }
 
@@ -115,8 +132,8 @@ export function App() {
             if (firstAvailable) next.agentId = firstAvailable.id;
           }
           if (!next.designSystemId && dsList.length > 0) {
-            next.designSystemId = dsList.find((d) => d.id === 'default')?.id
-              ?? dsList[0]!.id;
+            next.designSystemId =
+              dsList.find((d) => d.id === 'default')?.id ?? dsList[0]!.id;
           }
         } else {
           next.mode = 'api';
@@ -164,7 +181,9 @@ export function App() {
     // configuration, so future page loads can skip the auto-popup.
     const withOnboarding: AppConfig = { ...next, onboardingCompleted: true };
     saveConfig(withOnboarding);
-    void syncMediaProvidersToDaemon(withOnboarding.mediaProviders, { force: true });
+    void syncMediaProvidersToDaemon(withOnboarding.mediaProviders, {
+      force: true,
+    });
     void syncConfigToDaemon(withOnboarding);
     setConfig(withOnboarding);
     setSettingsOpen(false);
@@ -193,7 +212,10 @@ export function App() {
     (agentId: string, choice: { model?: string; reasoning?: string }) => {
       const prev = config.agentModels?.[agentId] ?? {};
       const merged = { ...prev, ...choice };
-      const nextAgentModels = { ...(config.agentModels ?? {}), [agentId]: merged };
+      const nextAgentModels = {
+        ...(config.agentModels ?? {}),
+        [agentId]: merged,
+      };
       const next = { ...config, agentModels: nextAgentModels };
       saveConfig(next);
       void syncConfigToDaemon(next);
@@ -231,8 +253,15 @@ export function App() {
         metadata: input.metadata,
       });
       if (!result) return;
-      setProjects((curr) => [result.project, ...curr.filter((p) => p.id !== result.project.id)]);
-      navigate({ kind: 'project', projectId: result.project.id, fileName: null });
+      setProjects((curr) => [
+        result.project,
+        ...curr.filter((p) => p.id !== result.project.id),
+      ]);
+      navigate({
+        kind: 'project',
+        projectId: result.project.id,
+        fileName: null,
+      });
     },
     [],
   );
@@ -240,7 +269,10 @@ export function App() {
   const handleImportClaudeDesign = useCallback(async (file: File) => {
     const result = await importClaudeDesignZip(file);
     if (!result) return;
-    setProjects((curr) => [result.project, ...curr.filter((p) => p.id !== result.project.id)]);
+    setProjects((curr) => [
+      result.project,
+      ...curr.filter((p) => p.id !== result.project.id),
+    ]);
     navigate({
       kind: 'project',
       projectId: result.project.id,
@@ -252,22 +284,24 @@ export function App() {
     navigate({ kind: 'project', projectId: id, fileName: null });
   }, []);
 
-  const handleDeleteProject = useCallback(async (id: string) => {
-    const ok = await deleteProjectApi(id);
-    if (!ok) return;
-    setProjects((curr) => curr.filter((p) => p.id !== id));
-    if (route.kind === 'project' && route.projectId === id) {
-      navigate({ kind: 'home' });
-    }
-  }, [route]);
+  const handleDeleteProject = useCallback(
+    async (id: string) => {
+      const ok = await deleteProjectApi(id);
+      if (!ok) return;
+      setProjects((curr) => curr.filter((p) => p.id !== id));
+      if (route.kind === 'project' && route.projectId === id) {
+        navigate({ kind: 'home' });
+      }
+    },
+    [route],
+  );
 
   const handleBack = useCallback(() => {
     navigate({ kind: 'home' });
   }, []);
 
   const handleClearPendingPrompt = useCallback(() => {
-    const projectId =
-      route.kind === 'project' ? route.projectId : null;
+    const projectId = route.kind === 'project' ? route.projectId : null;
     if (!projectId) return;
     setProjects((curr) =>
       curr.map((p) =>
@@ -278,8 +312,7 @@ export function App() {
   }, [route]);
 
   const handleTouchProject = useCallback(() => {
-    const projectId =
-      route.kind === 'project' ? route.projectId : null;
+    const projectId = route.kind === 'project' ? route.projectId : null;
     if (!projectId) return;
     const updatedAt = Date.now();
     setProjects((curr) =>
@@ -289,14 +322,12 @@ export function App() {
   }, [route]);
 
   const handleProjectChange = useCallback((updated: Project) => {
-    setProjects((curr) =>
-      curr.map((p) => (p.id === updated.id ? updated : p)),
-    );
+    setProjects((curr) => curr.map((p) => (p.id === updated.id ? updated : p)));
   }, []);
 
   const activeProject =
     route.kind === 'project'
-      ? projects.find((p) => p.id === route.projectId) ?? null
+      ? (projects.find((p) => p.id === route.projectId) ?? null)
       : null;
 
   // Deep-linked route to a project we don't have yet (e.g. after a refresh
