@@ -2447,16 +2447,20 @@ function assembleExample(templateHtml, slidesHtml, title) {
 }
 
 export function isLocalSameOrigin(req, port) {
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
-  ]);
-  const allowedOrigins = new Set([
-    `http://127.0.0.1:${port}`,
-    `http://localhost:${port}`,
-    `http://[::1]:${port}`,
-  ]);
+  const ports = [port];
+  const webPort = Number(process.env.OD_WEB_PORT);
+  if (webPort && webPort !== port) ports.push(webPort);
+
+  const allowedHosts = new Set(
+    ports.flatMap((p) => [`127.0.0.1:${p}`, `localhost:${p}`, `[::1]:${p}`]),
+  );
+  const allowedOrigins = new Set(
+    ports.flatMap((p) => [
+      `http://127.0.0.1:${p}`,
+      `http://localhost:${p}`,
+      `http://[::1]:${p}`,
+    ]),
+  );
   const host = String(req.headers.host || '');
   if (!allowedHosts.has(host)) return false;
   const origin = req.headers.origin;
