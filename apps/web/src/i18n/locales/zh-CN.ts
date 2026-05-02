@@ -72,6 +72,9 @@ export const zhCN: Dict = {
   'settings.hide': '隐藏',
   'settings.model': '模型',
   'settings.baseUrl': 'Base URL',
+  'settings.maxTokens': '最大 tokens（可选）',
+  'settings.maxTokensHint':
+    '响应长度上限。每个 model 有调优过的默认值（在 placeholder 里显示），留空即使用，输入数字则覆盖。',
   'settings.apiHint':
     '请求会从当前浏览器直连你设置的 Base URL，无中转代理。Key 只存放在 localStorage。',
   'settings.skipForNow': '暂时跳过',
@@ -457,6 +460,7 @@ export const zhCN: Dict = {
   'fileViewer.download': '下载',
   'fileViewer.open': '打开',
   'fileViewer.imageMeta': '图片 · {size}',
+  'fileViewer.reactMeta': 'React 组件 · {size}',
   'fileViewer.sketchMeta': '草图 · {size}',
   'fileViewer.markdownStreamingMeta': '正在流式预览…',
   'fileViewer.markdownErrorMeta': '预览可能不完整（生成错误）。',
@@ -496,6 +500,8 @@ export const zhCN: Dict = {
   'fileViewer.exportPptxNa': '此处暂不支持导出 PPTX。',
   'fileViewer.exportZip': '下载为 .zip',
   'fileViewer.exportHtml': '导出为独立 HTML',
+  'fileViewer.exportJsx': '导出为 JSX',
+  'fileViewer.exportReactHtml': '导出预览 HTML',
   'fileViewer.saveAsTemplate': '保存为模板…',
   'fileViewer.savingTemplate': '正在保存模板…',
   'fileViewer.savedTemplate': '已保存为「{name}」',

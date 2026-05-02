@@ -8,6 +8,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { composeSystemPrompt } from "./prompts/system.js";
+import { createCommandInvocation } from "@open-design/platform";
 import {
   detectAgents,
   getAgentDef,
@@ -29,6 +30,7 @@ import { importClaudeDesignZip } from "./claude-design-import.js";
 import { listPromptTemplates, readPromptTemplate } from "./prompt-templates.js";
 import { buildDocumentPreview } from "./document-preview.js";
 import { lintArtifact, renderFindingsForAgent } from "./lint-artifact.js";
+import { loadCraftSections } from "./craft.js";
 import { generateMedia } from "./media.js";
 import {
   AUDIO_DURATIONS_SEC,
@@ -196,6 +198,11 @@ const DESIGN_SYSTEMS_DIR = resolveDaemonResourceDir(
   "design-systems",
   path.join(PROJECT_ROOT, "design-systems"),
 );
+const CRAFT_DIR = resolveDaemonResourceDir(
+  DAEMON_RESOURCE_ROOT,
+  "craft",
+  path.join(PROJECT_ROOT, "craft"),
+);
 const FRAMES_DIR = resolveDaemonResourceDir(
   DAEMON_RESOURCE_ROOT,
   "frames",
@@ -213,19 +220,6 @@ const ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, "artifacts");
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, "projects");
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 
-// Windows ENAMETOOLONG mitigation constants
-const CMD_BAT_RE = /\.(cmd|bat)$/i;
-const PROMPT_TEMP_FILE = () =>
-  ".od-prompt-" +
-  Date.now() +
-  "-" +
-  Math.random().toString(36).slice(2, 8) +
-  ".md";
-const promptFileBootstrap = (fp) =>
-  `Your full instructions are stored in the file: ${fp.replace(/\\/g, "/")}. ` +
-  "Open that file first and follow every instruction in it exactly — " +
-  "it contains the system prompt, design system, skill workflow, and user request. " +
-  "Do not begin your response until you have read the entire file.";
 export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 
 export function normalizeProjectDisplayStatus(status) {
@@ -1771,6 +1765,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     let skillBody;
     let skillName;
     let skillMode;
+    let skillCraftRequires = [];
     if (effectiveSkillId) {
       const skill = (await listSkills(SKILLS_DIR)).find(
         (s) => s.id === effectiveSkillId,
@@ -1779,6 +1774,18 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         skillBody = skill.body;
         skillName = skill.name;
         skillMode = skill.mode;
+        if (Array.isArray(skill.craftRequires))
+          skillCraftRequires = skill.craftRequires;
+      }
+    }
+
+    let craftBody;
+    let craftSections;
+    if (skillCraftRequires.length > 0) {
+      const loaded = await loadCraftSections(CRAFT_DIR, skillCraftRequires);
+      if (loaded.body) {
+        craftBody = loaded.body;
+        craftSections = loaded.sections;
       }
     }
 
@@ -1804,6 +1811,8 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       skillMode,
       designSystemBody,
       designSystemTitle,
+      craftBody,
+      craftSections,
       metadata,
       template,
     });
@@ -1961,75 +1970,13 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         : null;
     const agentOptions = { model: safeModel, reasoning: safeReasoning };
 
-    // Windows ENAMETOOLONG mitigation.  On Windows the OS caps the command
-    // line passed to child_process.spawn: ~8 191 chars when shell:true is
-    // needed (.cmd/.bat npm shims) and ~32 767 chars otherwise (CreateProcess).
-    // The composed prompt (system prompt + design system + skill body + user
-    // message) can exceed either limit.  Agents with `promptViaStdin` bypass
-    // this by piping through stdin.  For the remaining agents we write the
-    // prompt to a temp file in the project directory and pass a short
-    // bootstrap message that tells the agent to Read it before responding.
     const resolvedBin = resolveAgentBin(agentId);
-    const isWinShell =
-      process.platform === "win32" &&
-      resolvedBin &&
-      CMD_BAT_RE.test(resolvedBin);
-    // Thresholds account for escaping overhead (~1.1-1.3x for cmd.exe shell)
-    // plus other args (~500 chars).  6500 chars for shell:true, 30000 for
-    // direct CreateProcess.
-    const promptLimit = isWinShell ? 6500 : 30000;
-    const needsFilePrompt =
-      !def.promptViaStdin &&
-      process.platform === "win32" &&
-      composed.length > promptLimit &&
-      cwd;
-    if (process.platform === "win32") {
-      console.log(
-        `[od] prompt-delivery: agent=${agentId} promptLen=${composed.length} ` +
-          `shell=${isWinShell} limit=${promptLimit} file=${!!needsFilePrompt} ` +
-          `bin=${resolvedBin ? path.basename(resolvedBin) : "null"}`,
-      );
-    }
-    let effectivePrompt = composed;
-    let promptFilePath = null;
-    let promptFileCleaned = false;
-    const cleanPromptFile = () => {
-      if (promptFilePath && !promptFileCleaned) {
-        promptFileCleaned = true;
-        fs.unlink(promptFilePath, () => {});
-      }
-    };
-    // ^^^ idempotency: promptFileCleaned is set synchronously BEFORE the
-    // async fs.unlink callback, so a second call never races past the guard.
-    if (needsFilePrompt) {
-      promptFilePath = path.join(cwd, PROMPT_TEMP_FILE());
-      try {
-        fs.writeFileSync(promptFilePath, composed, "utf8");
-        effectivePrompt = promptFileBootstrap(promptFilePath);
-        console.log(`[od] wrote prompt to ${promptFilePath}`);
-      } catch (err) {
-        console.error(`[od] failed to write prompt file: ${err.message}`);
-        promptFilePath = null;
-      }
-    }
 
-    run.promptFileCleaned = cleanPromptFile;
-    const args = def.buildArgs(
-      effectivePrompt,
-      safeImages,
-      extraAllowedDirs,
-      agentOptions,
-      { cwd },
-    );
-    const send = (event, data) => design.runs.emit(run, event, data);
-
-    // resolvedBin was already looked up above for the ENAMETOOLONG check.
     // If detection can't find the binary, surface a friendly SSE error
     // pointing at /api/agents instead of silently falling back to
     // spawn(def.bin) — that fallback re-introduces the exact ENOENT symptom
-    // from issue #10 the rest of this block is meant to prevent.
+    // from issue #10.
     if (!resolvedBin) {
-      cleanPromptFile();
       design.runs.emit(
         run,
         "error",
@@ -2042,32 +1989,16 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       );
       return design.runs.finish(run, "failed", 1, null);
     }
-    // npm shims on Windows are .cmd/.bat files; Node ≥21 refuses to spawn
-    // those without `shell: true` (CVE-2024-27980). When `shell: true` is set
-    // on Windows, Node escapes argv items for the cmd.exe shell — that
-    // escape is what currently keeps user-controlled prompt text in `args`
-    // (composed via `def.buildArgs(prompt, ...)` above) from being
-    // interpreted as shell metacharacters. Two caveats this leaves on the
-    // table for a future contributor to be aware of:
-    //   1. Defensibility relies on Node's escaper staying correct. The
-    //      stronger fix is to keep user text out of argv entirely by piping
-    //      the composed prompt through child stdin instead of passing it
-    //      as a `-p $prompt`-style flag. Do NOT add a new prompt-bearing
-    //      flag in `buildArgs` thinking shell:true makes it safe — route
-    //      it through stdin instead.
-    //   2. cmd.exe caps the full command line at ~8191 chars (well below
-    //      Node's direct-spawn argv cap), so long prompts can fail with an
-    //      ENAMETOOLONG-class error here. Same mitigation: stdin.
-    //
-    // We only flip shell:true for `.cmd`/`.bat` because those are the only
-    // PATHEXT entries that strictly require cmd.exe to launch. `.exe`/`.com`
-    // launch directly (no shell needed); `.ps1`/`.vbs` etc. would need a
-    // different host (powershell / wscript) — `shell: true` (which uses
-    // cmd.exe) wouldn't actually help those, so we don't pretend it would.
-    // In practice npm-installed CLIs ship as `.cmd` shims, which is the
-    // case this branch covers.
-    const useShell =
-      process.platform === "win32" && CMD_BAT_RE.test(resolvedBin);
+
+    const args = def.buildArgs(
+      composed,
+      safeImages,
+      extraAllowedDirs,
+      agentOptions,
+      { cwd },
+    );
+    const send = (event, data) => design.runs.emit(run, event, data);
+
     const odMediaEnv = {
       OD_BIN,
       OD_DAEMON_URL: `http://127.0.0.1:${resolvedPort}`,
@@ -2097,36 +2028,26 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     let child;
     let acpSession = null;
     try {
-      // When the agent definition sets `promptViaStdin`, pipe the composed
-      // prompt through stdin instead of embedding it in argv. Bypasses the
-      // OS command-line length limit (Windows CreateProcess caps at ~32 KB)
-      // which causes `spawn ENAMETOOLONG` for any non-trivial prompt.
+      // Prompt delivery via stdin is now the universal default. This bypasses
+      // both the cmd.exe 8KB limit and the CreateProcess 32KB limit.
       const stdinMode =
-        def.promptViaStdin ||
-        def.streamFormat === "acp-json-rpc" ||
-        needsFilePrompt
+        def.promptViaStdin || def.streamFormat === "acp-json-rpc"
           ? "pipe"
           : "ignore";
-      // With shell:true on Windows, Node.js builds `cmd.exe /d /s /c "<bin> <args>"`
-      // and escapes argv items but does NOT quote the bin path itself. If
-      // `resolvedBin` contains spaces (e.g. an npm shim under a user directory
-      // like `C:\Users\First Last\AppData\...\claude.CMD`), cmd.exe parses up
-      // to the first space as the command and the rest as arguments, yielding
-      // "The system cannot find the file 'C:\Users\First'". Quote the bin so
-      // the entire path is treated as one token.
-      const spawnBin = useShell ? `"${resolvedBin}"` : resolvedBin;
-      child = spawn(spawnBin, args, {
-        env: { ...process.env, ...odMediaEnv },
+      const env = { ...process.env, ...odMediaEnv };
+      const invocation = createCommandInvocation({
+        command: resolvedBin,
+        args,
+        env,
+      });
+      child = spawn(invocation.command, invocation.args, {
+        env,
         stdio: [stdinMode, "pipe", "pipe"],
         cwd: cwd || undefined,
-        shell: useShell,
+        shell: false,
       });
       run.child = child;
-      if (
-        (def.promptViaStdin || needsFilePrompt) &&
-        child.stdin &&
-        def.streamFormat !== "pi-rpc"
-      ) {
+      if (def.promptViaStdin && child.stdin && def.streamFormat !== "pi-rpc") {
         // EPIPE from a fast-exiting CLI (bad auth, missing model, exit on
         // launch) would otherwise surface as an unhandled stream error and
         // crash the daemon. Swallow it — the regular exit/close handlers
@@ -2145,7 +2066,6 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         child.stdin.end(composed, "utf8");
       }
     } catch (err) {
-      cleanPromptFile();
       design.runs.emit(
         run,
         "error",
@@ -2296,7 +2216,8 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   app.post("/api/proxy/anthropic/stream", async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
-    const { baseUrl, apiKey, model, systemPrompt, messages } = proxyBody;
+    const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } =
+      proxyBody;
     if (!baseUrl || !apiKey || !model) {
       return sendApiError(
         res,
@@ -2326,138 +2247,78 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
 
     const payload = {
       model,
-      max_tokens: 8192,
+      max_tokens:
+        typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : 8192,
+      messages: Array.isArray(messages) ? messages : [],
       stream: true,
-      system: systemPrompt || "",
-      messages: Array.isArray(messages)
-        ? messages
-            .filter(
-              (m) =>
-                m &&
-                (m.role === "user" || m.role === "assistant") &&
-                typeof m.content === "string",
-            )
-            .map((m) => ({ role: m.role, content: m.content }))
-        : [],
     };
+    if (typeof systemPrompt === "string" && systemPrompt) {
+      payload.system = systemPrompt;
+    }
 
     const sse = createSseResponse(res);
-    const send = sse.send;
-
-    let upstream;
     try {
-      upstream = await fetch(url, {
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload),
       });
-    } catch (fetchErr) {
-      send(
-        "error",
-        createSseErrorPayload(
-          "UPSTREAM_UNAVAILABLE",
-          `fetch failed: ${fetchErr.message}`,
-          { retryable: true },
-        ),
-      );
-      return sse.end();
-    }
 
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
-      const safeErr = redactAuthTokens(errText.slice(0, 500));
-      console.error(
-        `[proxy:anthropic] upstream ${upstream.status}: ${safeErr.slice(0, 200)}`,
-      );
-      send(
-        "error",
-        createSseErrorPayload(
-          "UPSTREAM_UNAVAILABLE",
-          `upstream ${upstream.status}: ${safeErr}`,
-          { retryable: upstream.status >= 500 },
-        ),
-      );
-      return sse.end();
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[proxy:anthropic] upstream error: ${response.status} ${redactAuthTokens(errorText)}`,
+        );
+        sse.send("error", {
+          message: `Upstream error: ${response.status}`,
+          details: errorText,
+        });
+        return sse.end();
+      }
 
-    send("start", { model });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-
-      let match;
-      while ((match = buf.match(/\r?\n\r?\n/)) && match.index != null) {
-        const frame = buf.slice(0, match.index);
-        buf = buf.slice(match.index + match[0].length);
-        const raw = frame
-          .split(/\r?\n/)
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n")
-          .trim();
-        if (!raw) continue;
-        if (raw === "[DONE]") {
-          send("end", {});
-          return sse.end();
-        }
-        try {
-          const chunk = JSON.parse(raw);
-          if (chunk.type === "content_block_delta") {
-            const text = chunk.delta?.text ?? chunk.delta?.partial_json ?? "";
-            if (text) send("delta", { text });
-          } else if (chunk.type === "message_delta") {
-            const text = chunk.delta?.text ?? "";
-            if (text) send("delta", { text });
-          } else if (chunk.type === "message_stop") {
-            send("end", {});
-            return sse.end();
-          } else if (chunk.type === "error") {
-            send(
-              "error",
-              createSseErrorPayload(
-                "UPSTREAM_UNAVAILABLE",
-                chunk.error?.message || "upstream error",
-                { retryable: false },
-              ),
-            );
-            return sse.end();
-          } else if (process.env.NODE_ENV === "development") {
-            // Anthropic-compatible providers sometimes add vendor-specific
-            // events. Unknown non-text events are ignored but surfaced in dev
-            // logs to make provider compatibility issues easier to diagnose.
-            console.warn(
-              `[proxy:anthropic] skipped upstream event type=${chunk.type || "unknown"}`,
-            );
-          }
-        } catch {
-          if (process.env.NODE_ENV === "development") {
-            console.warn(
-              "[proxy:anthropic] skipped malformed upstream SSE frame",
-            );
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            const event = line.slice(7).trim();
+            const dataLine = lines[lines.indexOf(line) + 1];
+            if (dataLine && dataLine.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(dataLine.slice(6));
+                sse.send(event, data);
+              } catch (e) {
+                // ignore parse errors for partial chunks
+              }
+            }
           }
         }
       }
+      sse.end();
+    } catch (err) {
+      console.error(`[proxy:anthropic] internal error: ${err.message}`);
+      sse.send("error", { message: err.message });
+      sse.end();
     }
-
-    send("end", {});
-    sse.end();
   });
 
-  app.post("/api/proxy/stream", async (req, res) => {
+  app.post("/api/proxy/openai/stream", async (req, res) => {
     /** @type {Partial<ProxyStreamRequest>} */
     const proxyBody = req.body || {};
-    const { baseUrl, apiKey, model, systemPrompt, messages } = proxyBody;
+    const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } =
+      proxyBody;
     if (!baseUrl || !apiKey || !model) {
       return sendApiError(
         res,
@@ -2467,7 +2328,6 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       );
     }
 
-    // Validate baseUrl — only allow http/https and block internal IPs (SSRF).
     const validated = validateExternalApiBaseUrl(baseUrl);
     if (validated.error) {
       return sendApiError(
@@ -2478,206 +2338,126 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       );
     }
 
-    // Build the upstream URL. If the base URL already ends with /v1 (or
-    // /v1/), append /chat/completions directly. Otherwise append
-    // /v1/chat/completions for providers that expect a versioned prefix.
-    let url;
     const clean = baseUrl.replace(/\/+$/, "");
-    if (/\/v\d+$/.test(clean)) {
-      url = clean + "/chat/completions";
-    } else {
-      url = clean + "/v1/chat/completions";
-    }
-
-    // Force MiMo to behave as a pure text generator (no tool calls)
-    const isMiMo = model.toLowerCase().startsWith("mimo");
+    const url = /\/v\d+$/.test(clean)
+      ? `${clean}/chat/completions`
+      : `${clean}/v1/chat/completions`;
     console.log(
-      `[proxy] ${req.method} ${validated.parsed.hostname} model=${model} miMo=${isMiMo}`,
+      `[proxy:openai] ${req.method} ${validated.parsed.hostname} model=${model}`,
     );
+
+    const payloadMessages = Array.isArray(messages) ? [...messages] : [];
+    if (typeof systemPrompt === "string" && systemPrompt) {
+      payloadMessages.unshift({ role: "system", content: systemPrompt });
+    }
 
     const payload = {
       model,
-      max_tokens: 8192,
+      messages: payloadMessages,
+      max_tokens:
+        typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : 8192,
       stream: true,
-      ...(isMiMo ? { tool_choice: "none", tools: [] } : {}),
-      messages: [
-        { role: "system", content: systemPrompt || "" },
-        ...(Array.isArray(messages) ? messages : []),
-      ],
     };
-    const body = JSON.stringify(payload);
 
     const sse = createSseResponse(res);
-    const send = sse.send;
-
-    let upstream;
     try {
-      upstream = await fetch(url, {
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
-        body,
+        body: JSON.stringify(payload),
       });
-    } catch (fetchErr) {
-      send(
-        "error",
-        createSseErrorPayload(
-          "UPSTREAM_UNAVAILABLE",
-          `fetch failed: ${fetchErr.message}`,
-          { retryable: true },
-        ),
-      );
-      return sse.end();
-    }
 
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
-      const safeErr = redactAuthTokens(errText.slice(0, 500));
-      console.error(
-        `[proxy] upstream ${upstream.status}: ${safeErr.slice(0, 200)}`,
-      );
-      send(
-        "error",
-        createSseErrorPayload(
-          "UPSTREAM_UNAVAILABLE",
-          `upstream ${upstream.status}: ${safeErr}`,
-          { retryable: upstream.status >= 500 },
-        ),
-      );
-      return sse.end();
-    }
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `[proxy:openai] upstream error: ${response.status} ${redactAuthTokens(errorText)}`,
+        );
+        sse.send("error", {
+          message: `Upstream error: ${response.status}`,
+          details: errorText,
+        });
+        return sse.end();
+      }
 
-    send("start", { model });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-
-      let idx;
-      while ((idx = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6).trim();
-        if (payload === "[DONE]") {
-          send("end", {});
-          return sse.end();
-        }
-        try {
-          const chunk = JSON.parse(payload);
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta) {
-            let text = delta.content ?? "";
-            if (text) {
-              send("delta", { text });
-            }
-            // Structured tool_calls from the API (not in content)
-            if (Array.isArray(delta.tool_calls)) {
-              for (const tc of delta.tool_calls) {
-                const fn = tc.function;
-                if (fn?.name) {
-                  send("delta", { text: `\n\n[${fn.name}]\n` });
-                }
-              }
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === "[DONE]") break;
+            try {
+              const data = JSON.parse(dataStr);
+              sse.send("message", data);
+            } catch (e) {
+              // ignore parse errors for partial chunks
             }
           }
-        } catch {
-          // skip malformed chunks
         }
       }
+      sse.end();
+    } catch (err) {
+      console.error(`[proxy:openai] internal error: ${err.message}`);
+      sse.send("error", { message: err.message });
+      sse.end();
     }
-
-    send("end", {});
-    sse.end();
   });
 
-  // SPA fallback for the built web app. Put this LAST so it never shadows
-  // /api routes. Only active when out/ exists (production mode).
-  //
-  // Next.js's static export writes a single shell HTML at out/index.html
-  // for the optional catch-all route (`app/[[...slug]]/page.tsx`); project
-  // IDs aren't pre-rendered, so any unknown deep link (e.g. /projects/abc)
-  // needs to fall back to that shell so the client router can pick the
-  // right view at runtime.
-  if (fs.existsSync(STATIC_DIR)) {
-    app.get(/^\/(?!api\/|artifacts\/|frames\/).*/, (_req, res) => {
-      res.sendFile(path.join(STATIC_DIR, "index.html"));
-    });
-  }
-
-  return new Promise((resolve) => {
-    const server = app.listen(port, "127.0.0.1", () => {
-      const address = server.address();
-      const actualPort =
-        typeof address === "object" && address ? address.port : port;
-      resolvedPort = actualPort;
-      const url = `http://127.0.0.1:${actualPort}`;
-      resolve(returnServer ? { url, server } : url);
-    });
+  const server = app.listen(port, () => {
+    resolvedPort = server.address().port;
+    if (!returnServer) {
+      console.log(`[od] daemon listening on http://127.0.0.1:${resolvedPort}`);
+    }
   });
-}
 
-// Assemble a skill's example deck from its seed template + a slides
-// snippet. The seed contains the full CSS / WebGL / nav-JS shell with a
-// `<!-- SLIDES_HERE -->` marker; the snippet contributes the actual
-// `<section class="slide ...">` content. We also patch the placeholder
-// `<title>` so the iframe's tab name reads as the skill, not the
-// "[必填] 替换为 PPT 标题" stub.
-function assembleExample(tplHtml, slidesHtml, skillName) {
-  const slidesMarker = /<!--\s*SLIDES_HERE\s*-->/i;
-  const titleTag = /<title>[^<]*<\/title>/i;
-  const safeTitle = `${skillName || "Magazine Web PPT"} · Example Deck`;
-  const withSlides = slidesMarker.test(tplHtml)
-    ? tplHtml.replace(slidesMarker, slidesHtml)
-    : tplHtml.replace(/<\/body>/i, `${slidesHtml}</body>`);
-  return titleTag.test(withSlides)
-    ? withSlides.replace(titleTag, `<title>${escapeHtml(safeTitle)}</title>`)
-    : withSlides;
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export function isLocalSameOrigin(req, port) {
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
-  ]);
-  const allowedOrigins = new Set([
-    `http://127.0.0.1:${port}`,
-    `http://localhost:${port}`,
-    `http://[::1]:${port}`,
-  ]);
-  const host = String(req.headers.host || "");
-  if (!allowedHosts.has(host)) return false;
-  const origin = req.headers.origin;
-  if (origin == null || origin === "") return true;
-  return allowedOrigins.has(String(origin));
-}
-
-function sanitizeSlug(s) {
-  return (
-    String(s)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "artifact"
-  );
+  if (returnServer) return server;
 }
 
 function randomId() {
   return randomUUID();
+}
+
+function sanitizeSlug(text) {
+  return String(text)
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function assembleExample(templateHtml, slidesHtml, title) {
+  return templateHtml
+    .replace("<!-- SLIDES_HERE -->", slidesHtml)
+    .replace(
+      /<title>.*?<\/title>/,
+      `<title>${title} | Open Design Example</title>`,
+    );
+}
+
+function isLocalSameOrigin(req, port) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // Direct non-browser calls are trusted
+  try {
+    const url = new URL(origin);
+    return (
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+      url.port === String(port)
+    );
+  } catch {
+    return false;
+  }
 }

@@ -73,6 +73,9 @@ export const ru: Dict = {
   'settings.hide': 'Скрыть',
   'settings.model': 'Модель',
   'settings.baseUrl': 'Базовый URL',
+  'settings.maxTokens': 'Макс. токенов (опционально)',
+  'settings.maxTokensHint':
+    'Ограничение длины ответа. У каждой модели свой настроенный дефолт (виден в плейсхолдере); оставьте поле пустым, чтобы использовать его, или введите число, чтобы переопределить.',
   'settings.apiHint':
     'Вызовы идут напрямую из этого браузера на указанный вами базовый URL. Без прокси. Ключ никогда не покидает localStorage.',
   'settings.skipForNow': 'Пропустить сейчас',
@@ -471,6 +474,7 @@ export const ru: Dict = {
   'fileViewer.download': 'Скачать',
   'fileViewer.open': 'Открыть',
   'fileViewer.imageMeta': 'Изображение · {size}',
+  'fileViewer.reactMeta': 'React-компонент · {size}',
   'fileViewer.sketchMeta': 'Эскиз · {size}',
   'fileViewer.videoMeta': 'Видео · {size}',
   'fileViewer.audioMeta': 'Аудио · {size}',
@@ -507,6 +511,8 @@ export const ru: Dict = {
   'fileViewer.exportPptxNa': 'Экспорт PPTX здесь недоступен.',
   'fileViewer.exportZip': 'Скачать как .zip',
   'fileViewer.exportHtml': 'Экспорт как HTML',
+  'fileViewer.exportJsx': 'Экспорт как JSX',
+  'fileViewer.exportReactHtml': 'Экспорт предпросмотра как HTML',
   'fileViewer.saveAsTemplate': 'Сохранить как шаблон…',
   'fileViewer.savingTemplate': 'Сохранение шаблона…',
   'fileViewer.savedTemplate': 'Сохранено как «{name}»',

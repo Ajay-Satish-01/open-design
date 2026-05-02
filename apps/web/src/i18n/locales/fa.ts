@@ -73,6 +73,9 @@ export const fa: Dict = {
   'settings.hide': 'پنهان',
   'settings.model': 'مدل',
   'settings.baseUrl': 'آدرس پایه',
+  'settings.maxTokens': 'حداکثر توکن (اختیاری)',
+  'settings.maxTokensHint':
+    'سقف طول پاسخ. هر مدل مقدار پیش‌فرض تنظیم‌شدهٔ خود را دارد (در placeholder نمایش داده می‌شود)؛ برای استفاده از آن خالی بگذارید، یا برای جایگزینی، عددی وارد کنید.',
   'settings.apiHint':
     'فراخوانی‌ها مستقیماً از این مرورگر به آدرس پایه‌ای که تعیین کرده‌اید ارسال می‌شوند. بدون پراکسی. کلید هرگز localStorage را ترک نمی‌کند.',
   'settings.skipForNow': 'فعلاً رد کنید',
@@ -472,6 +475,7 @@ export const fa: Dict = {
   'fileViewer.download': 'دانلود',
   'fileViewer.open': 'باز کردن',
   'fileViewer.imageMeta': 'تصویر · {size}',
+  'fileViewer.reactMeta': 'مؤلفه React · {size}',
   'fileViewer.sketchMeta': 'طرح · {size}',
   'fileViewer.videoMeta': 'ویدئو · {size}',
   'fileViewer.audioMeta': 'صدا · {size}',
@@ -508,6 +512,8 @@ export const fa: Dict = {
   'fileViewer.exportPptxNa': 'صادرکردن PPTX اینجا در دسترس نیست.',
   'fileViewer.exportZip': 'دانلود به صورت .zip',
   'fileViewer.exportHtml': 'صادرکردن به HTML مستقل',
+  'fileViewer.exportJsx': 'صادرکردن به JSX',
+  'fileViewer.exportReactHtml': 'صادرکردن پیش‌نمایش به HTML',
   'fileViewer.saveAsTemplate': 'ذخیره به عنوان قالب…',
   'fileViewer.savingTemplate': 'در حال ذخیره قالب…',
   'fileViewer.savedTemplate': 'به عنوان «{name}» ذخیره شد',

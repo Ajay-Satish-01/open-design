@@ -1,8 +1,8 @@
 // Supported UI locales. Adding a new locale requires creating a new
 // dictionary in `./locales/` and registering it in `./index.tsx`.
-export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ja';
+export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ja' | 'ko';
 
-export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ja'];
+export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ja', 'ko'];
 
 export const LOCALE_LABEL: Record<Locale, string> = {
   'en': 'English',
@@ -14,6 +14,7 @@ export const LOCALE_LABEL: Record<Locale, string> = {
   'ru': 'Русский',
   'fa': 'فارسی',
   'ja': '日本語',
+  'ko': '한국어',
 };
 
 // Translation dictionary shape — flat keys, dot-namespaced. We keep it
@@ -480,6 +481,7 @@ export interface Dict {
   'fileViewer.download': string;
   'fileViewer.open': string;
   'fileViewer.imageMeta': string;
+  'fileViewer.reactMeta': string;
   'fileViewer.sketchMeta': string;
   'fileViewer.markdownStreamingMeta': string;
   'fileViewer.markdownErrorMeta': string;
@@ -519,6 +521,8 @@ export interface Dict {
   'fileViewer.exportPptxNa': string;
   'fileViewer.exportZip': string;
   'fileViewer.exportHtml': string;
+  'fileViewer.exportJsx': string;
+  'fileViewer.exportReactHtml': string;
   'fileViewer.saveAsTemplate': string;
   'fileViewer.savingTemplate': string;
   'fileViewer.savedTemplate': string;

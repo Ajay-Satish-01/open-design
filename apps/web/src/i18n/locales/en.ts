@@ -73,6 +73,9 @@ export const en: Dict = {
   'settings.hide': 'Hide',
   'settings.model': 'Model',
   'settings.baseUrl': 'Base URL',
+  'settings.maxTokens': 'Max tokens (optional)',
+  'settings.maxTokensHint':
+    'Cap on the response length. Each model has a tuned default (shown as a placeholder); leave blank to use it, or enter a number to override.',
   'settings.apiHint':
     'Calls go directly from this browser to the base URL you set. No proxy. The key never leaves localStorage.',
   'settings.skipForNow': 'Skip for now',
@@ -468,6 +471,7 @@ export const en: Dict = {
   'fileViewer.download': 'Download',
   'fileViewer.open': 'Open',
   'fileViewer.imageMeta': 'Image · {size}',
+  'fileViewer.reactMeta': 'React component · {size}',
   'fileViewer.sketchMeta': 'Sketch · {size}',
   'fileViewer.markdownStreamingMeta': 'Streaming preview…',
   'fileViewer.markdownErrorMeta': 'Preview may be incomplete (generation error).',
@@ -508,6 +512,8 @@ export const en: Dict = {
   'fileViewer.exportPptxNa': 'PPTX export is not available here.',
   'fileViewer.exportZip': 'Download as .zip',
   'fileViewer.exportHtml': 'Export as standalone HTML',
+  'fileViewer.exportJsx': 'Export as JSX',
+  'fileViewer.exportReactHtml': 'Export preview as HTML',
   'fileViewer.saveAsTemplate': 'Save as template…',
   'fileViewer.savingTemplate': 'Saving template…',
   'fileViewer.savedTemplate': 'Saved as "{name}"',

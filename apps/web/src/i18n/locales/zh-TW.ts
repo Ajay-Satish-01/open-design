@@ -72,6 +72,9 @@ export const zhTW: Dict = {
   'settings.hide': '隱藏',
   'settings.model': '模型',
   'settings.baseUrl': 'Base URL',
+  'settings.maxTokens': '最大 tokens（可選）',
+  'settings.maxTokensHint':
+    '回應長度上限。每個 model 有調過的預設值（在 placeholder 顯示），留空即使用，輸入數字則覆蓋。',
   'settings.apiHint':
     '請求會從當前瀏覽器直連你設定的 Base URL，無中轉代理。Key 只存放在 localStorage。',
   'settings.skipForNow': '暫時跳過',
@@ -457,6 +460,7 @@ export const zhTW: Dict = {
   'fileViewer.download': '下載',
   'fileViewer.open': '開啟',
   'fileViewer.imageMeta': '圖片 · {size}',
+  'fileViewer.reactMeta': 'React 元件 · {size}',
   'fileViewer.sketchMeta': '草圖 · {size}',
   'fileViewer.markdownStreamingMeta': '正在串流預覽…',
   'fileViewer.markdownErrorMeta': '預覽可能不完整（產生錯誤）。',
@@ -496,6 +500,8 @@ export const zhTW: Dict = {
   'fileViewer.exportPptxNa': '此處暫不支援匯出 PPTX。',
   'fileViewer.exportZip': '下載為 .zip',
   'fileViewer.exportHtml': '匯出為獨立 HTML',
+  'fileViewer.exportJsx': '匯出為 JSX',
+  'fileViewer.exportReactHtml': '匯出預覽 HTML',
   'fileViewer.saveAsTemplate': '儲存為範本…',
   'fileViewer.savingTemplate': '正在儲存範本…',
   'fileViewer.savedTemplate': '已儲存為「{name}」',
@@ -575,7 +581,7 @@ export const zhTW: Dict = {
   'tool.error': '錯誤',
   'tool.done': '完成',
 
-  'assistant.role': 'Claude',
+  'assistant.role': '助手',
   'assistant.workingLabel': '執行中',
   'assistant.doneLabel': '已完成',
   'assistant.outTokens': '{n} 輸出',

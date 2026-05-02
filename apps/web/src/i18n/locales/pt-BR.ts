@@ -73,6 +73,9 @@ export const ptBR: Dict = {
   'settings.hide': 'Ocultar',
   'settings.model': 'Modelo',
   'settings.baseUrl': 'URL base',
+  'settings.maxTokens': 'Tokens máx. (opcional)',
+  'settings.maxTokensHint':
+    'Limite para o comprimento da resposta. Cada modelo tem um valor padrão ajustado (visível no placeholder); deixe em branco para usá-lo ou insira um número para substituí-lo.',
   'settings.apiHint':
     'As chamadas vão direto deste navegador para a URL base definida. Sem proxy. A chave nunca sai do localStorage.',
   'settings.skipForNow': 'Pular por enquanto',
@@ -467,6 +470,7 @@ export const ptBR: Dict = {
   'fileViewer.download': 'Baixar',
   'fileViewer.open': 'Abrir',
   'fileViewer.imageMeta': 'Imagem · {size}',
+  'fileViewer.reactMeta': 'Componente React · {size}',
   'fileViewer.sketchMeta': 'Esboço · {size}',
   'fileViewer.markdownStreamingMeta': 'Prévia em streaming…',
   'fileViewer.markdownErrorMeta': 'A prévia pode estar incompleta (erro de geração).',
@@ -507,6 +511,8 @@ export const ptBR: Dict = {
   'fileViewer.exportPptxNa': 'Exportação PPTX não está disponível aqui.',
   'fileViewer.exportZip': 'Baixar como .zip',
   'fileViewer.exportHtml': 'Exportar como HTML independente',
+  'fileViewer.exportJsx': 'Exportar como JSX',
+  'fileViewer.exportReactHtml': 'Exportar prévia como HTML',
   'fileViewer.saveAsTemplate': 'Salvar como template…',
   'fileViewer.savingTemplate': 'Salvando template…',
   'fileViewer.savedTemplate': 'Salvo como "{name}"',
