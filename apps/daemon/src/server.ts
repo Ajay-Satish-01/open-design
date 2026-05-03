@@ -46,6 +46,7 @@ import {
 import { readMaskedConfig, writeConfig } from './media-config.js';
 import { readAppConfig, writeAppConfig } from './app-config.js';
 import {
+  buildProjectArchive,
   decodeMultipartFilename,
   deleteProjectFile,
   ensureProject,
@@ -94,6 +95,7 @@ import {
   checkDeploymentUrl,
   DeployError,
   deployToVercel,
+  prepareDeployPreflight,
   publicDeployConfig,
   readVercelConfig,
   VERCEL_PROVIDER_ID,
@@ -373,6 +375,20 @@ function sendApiError(res, status, code, message, init = {}) {
     .json(createCompatApiErrorResponse(code, message, init));
 }
 
+// Filename slug for the Content-Disposition header on archive downloads.
+// Browsers reject quotes and control bytes; we keep Unicode letters/digits
+// so a project name with non-ASCII characters (e.g. "café-design")
+// survives instead of becoming a row of underscores.
+function sanitizeArchiveFilename(raw) {
+  const cleaned = String(raw ?? '')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return cleaned;
+}
+
 /**
  * @param {ApiErrorCode} code
  * @param {string} message
@@ -441,7 +457,7 @@ const projectUpload = multer({
       cb(null, `${Date.now().toString(36)}-${safe}`);
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 200 * 1024 * 1024 },  // 200MB — covers the largest design assets we expect (PPTX/PDF/raw images)
 });
 
 function handleProjectUpload(req, res, next) {
@@ -593,7 +609,7 @@ export function createSseResponse(
   };
 }
 
-export async function startServer({ port = 7456, returnServer = false } = {}) {
+export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST || '0.0.0.0', returnServer = false } = {}) {
   let resolvedPort = port;
   const app = express();
   app.use(express.json({ limit: '4mb' }));
@@ -1478,6 +1494,45 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
     }
   });
 
+  app.post('/api/projects/:id/deploy/preflight', async (req, res) => {
+    try {
+      const { fileName, providerId = VERCEL_PROVIDER_ID } = req.body || {};
+      if (providerId !== VERCEL_PROVIDER_ID) {
+        return sendApiError(
+          res,
+          400,
+          'BAD_REQUEST',
+          'unsupported deploy provider',
+        );
+      }
+      if (typeof fileName !== 'string' || !fileName.trim()) {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'fileName required');
+      }
+      /** @type {import('@open-design/contracts').DeployPreflightResponse} */
+      const body = await prepareDeployPreflight(
+        PROJECTS_DIR,
+        req.params.id,
+        fileName,
+      );
+      res.json(body);
+    } catch (err) {
+      // DeployError is a known/expected outcome (validation, missing file).
+      // Anything else points at a bug or an unexpected runtime state, so
+      // surface it in the daemon log without leaking internals to the
+      // client which still gets a generic 400.
+      if (!(err instanceof DeployError)) {
+        console.error('[deploy/preflight]', err);
+      }
+      const status = err instanceof DeployError ? err.status : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err?.message || err),
+      );
+    }
+  });
+
   app.post(
     '/api/projects/:id/deployments/:deploymentId/check-link',
     async (req, res) => {
@@ -1533,6 +1588,46 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
       res.json(body);
     } catch (err) {
       sendApiError(res, 400, 'BAD_REQUEST', String(err));
+    }
+  });
+
+  // Streams a ZIP of the project's on-disk tree so the "Download as .zip"
+  // share menu can hand the user the actual files they uploaded — e.g. the
+  // imported `ui-design/` folder — instead of a one-file snapshot of the
+  // rendered HTML. `root` scopes the archive to a subdirectory; without
+  // it, the whole project is packed.
+  app.get('/api/projects/:id/archive', async (req, res) => {
+    try {
+      const root = typeof req.query?.root === 'string' ? req.query.root : '';
+      const { buffer, baseName } = await buildProjectArchive(
+        PROJECTS_DIR,
+        req.params.id,
+        root,
+      );
+      const project = getProject(db, req.params.id);
+      const fallbackName = project?.name || req.params.id;
+      const fileSlug = sanitizeArchiveFilename(baseName || fallbackName) || 'project';
+      const filename = `${fileSlug}.zip`;
+      // RFC 5987 dance: legacy `filename=` carries an ASCII fallback, while
+      // `filename*=UTF-8''…` lets modern browsers pick up project names
+      // with non-ASCII characters (accents, CJK, etc.) without mojibake.
+      const asciiFallback =
+        filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_') || 'project.zip';
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      );
+      res.send(buffer);
+    } catch (err) {
+      const code = err && err.code;
+      const status = code === 'ENOENT' || code === 'ENOTDIR' ? 404 : 400;
+      sendApiError(
+        res,
+        status,
+        status === 404 ? 'FILE_NOT_FOUND' : 'BAD_REQUEST',
+        String(err?.message || err),
+      );
     }
   });
 
@@ -2298,6 +2393,10 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         stdio: [stdinMode, 'pipe', 'pipe'],
         cwd: cwd || undefined,
         shell: false,
+        // Required when invocation wraps a Windows .cmd/.bat shim through
+        // cmd.exe; without this, Node re-escapes the inner command line and
+        // breaks paths containing spaces (issue #315).
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
       run.child = child;
       if (def.promptViaStdin && child.stdin && def.streamFormat !== 'pi-rpc') {
@@ -2675,7 +2774,7 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
   //   - `apps/daemon/sidecar/server.ts`     → expects `{ url, server }`
   //   - `apps/daemon/tests/version-route.test.ts` → expects `{ url, server }`
   return await new Promise((resolve, reject) => {
-    const server = app.listen(port, () => {
+    const server = app.listen(port, host, () => {
       const address = server.address();
       // `address()` can in theory return `string | AddressInfo | null`. For
       // a TCP listener it's always `AddressInfo` with a `.port` — the guard
@@ -2692,7 +2791,11 @@ export async function startServer({ port = 7456, returnServer = false } = {}) {
         return;
       }
       resolvedPort = boundPort;
-      const url = `http://127.0.0.1:${resolvedPort}`;
+      // When binding to all interfaces report localhost for local callers;
+      // when binding to a specific address (e.g. a Tailscale IP) report that
+      // address so remote callers and the sidecar use the correct URL.
+      const reportHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+      const url = `http://${reportHost}:${resolvedPort}`;
       if (!returnServer) {
         console.log(`[od] daemon listening on ${url}`);
       }

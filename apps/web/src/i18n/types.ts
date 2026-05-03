@@ -1,8 +1,8 @@
 // Supported UI locales. Adding a new locale requires creating a new
 // dictionary in `./locales/` and registering it in `./index.tsx`.
-export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ja' | 'ko' | 'pl' | 'hu';
+export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ar' | 'ja' | 'ko' | 'pl' | 'hu';
 
-export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ja', 'ko', 'pl', 'hu'];
+export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ar', 'ja', 'ko', 'pl', 'hu'];
 
 export const LOCALE_LABEL: Record<Locale, string> = {
   'en': 'English',
@@ -13,6 +13,7 @@ export const LOCALE_LABEL: Record<Locale, string> = {
   'es-ES': 'Español (España)',
   'ru': 'Русский',
   'fa': 'فارسی',
+  'ar': 'العربية',
   'ja': '日本語',
   'ko': '한국어',
   'pl': 'Polski',
@@ -466,6 +467,7 @@ export interface Dict {
   'designFiles.sectionImages': string;
   'designFiles.sectionSketches': string;
   'designFiles.sectionOther': string;
+  'designFiles.showMore': string;
   'designFiles.kindHtml': string;
   'designFiles.kindImage': string;
   'designFiles.kindSketch': string;
@@ -546,6 +548,7 @@ export interface Dict {
   'fileViewer.exportPptxNa': string;
   'fileViewer.exportZip': string;
   'fileViewer.exportHtml': string;
+  'fileViewer.exportMd': string;
   'fileViewer.exportJsx': string;
   'fileViewer.exportReactHtml': string;
   'fileViewer.saveAsTemplate': string;
