@@ -156,12 +156,7 @@ export const AGENT_DEFS = [
     // cursor/qwen entries below.
     buildArgs: (_prompt, _imagePaths, extraAllowedDirs = [], options = {}) => {
       const caps = agentCapabilities.get('claude') || {};
-      const args = [
-        '-p',
-        '--output-format',
-        'stream-json',
-        '--verbose',
-      ];
+      const args = ['-p', '--output-format', 'stream-json', '--verbose'];
       // `--include-partial-messages` lands richer streaming events but only
       // exists in newer Claude Code builds. Older installs reject it with
       // "unknown option" and exit 1, killing the chat. Gate on the probe.
@@ -213,7 +208,13 @@ export const AGENT_DEFS = [
     // `error: unexpected argument '-' found` and the agent exits with
     // code 2 before any prompt is read (see issue #237). The pipe alone
     // is sufficient for stdin delivery.
-    buildArgs: (_prompt, _imagePaths, _extra, options = {}, runtimeContext = {}) => {
+    buildArgs: (
+      _prompt,
+      _imagePaths,
+      _extra,
+      options = {},
+      runtimeContext = {},
+    ) => {
       const args = [
         'exec',
         '--json',
@@ -251,7 +252,13 @@ export const AGENT_DEFS = [
     fetchModels: async (resolvedBin) =>
       detectAcpModels({
         bin: resolvedBin,
-        args: ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', 'acp'],
+        args: [
+          '--permission-mode',
+          'dangerous',
+          '--respect-workspace-trust',
+          'false',
+          'acp',
+        ],
         timeoutMs: 15_000,
         defaultModelOption: DEFAULT_MODEL_OPTION,
       }),
@@ -269,7 +276,13 @@ export const AGENT_DEFS = [
       { id: 'gpt', label: 'gpt' },
       { id: 'gemini', label: 'gemini' },
     ],
-    buildArgs: () => ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', 'acp'],
+    buildArgs: () => [
+      '--permission-mode',
+      'dangerous',
+      '--respect-workspace-trust',
+      'false',
+      'acp',
+    ],
     streamFormat: 'acp-json-rpc',
   },
   {
@@ -314,14 +327,22 @@ export const AGENT_DEFS = [
     },
     fallbackModels: [
       DEFAULT_MODEL_OPTION,
-      { id: 'anthropic/claude-sonnet-4-5', label: 'anthropic/claude-sonnet-4-5' },
+      {
+        id: 'anthropic/claude-sonnet-4-5',
+        label: 'anthropic/claude-sonnet-4-5',
+      },
       { id: 'openai/gpt-5', label: 'openai/gpt-5' },
       { id: 'google/gemini-2.5-pro', label: 'google/gemini-2.5-pro' },
     ],
     // Prompt delivered via stdin (`opencode run -`) to avoid Windows
     // `spawn ENAMETOOLONG` while preserving OpenCode's structured stream.
     buildArgs: (_prompt, _imagePaths, _extra, options = {}) => {
-      const args = ['run', '--format', 'json', '--dangerously-skip-permissions'];
+      const args = [
+        'run',
+        '--format',
+        'json',
+        '--dangerously-skip-permissions',
+      ];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
@@ -405,9 +426,22 @@ export const AGENT_DEFS = [
     // Passing it makes the CLI treat the dash as the literal user prompt,
     // which then surfaces as "your message only contains '-'". Keep stdin
     // piped for prompt delivery, but do not append a fake prompt arg.
-    buildArgs: (_prompt, _imagePaths, _extra, options = {}, runtimeContext = {}) => {
+    buildArgs: (
+      _prompt,
+      _imagePaths,
+      _extra,
+      options = {},
+      runtimeContext = {},
+    ) => {
       const args = [];
-      args.push('--print', '--output-format', 'stream-json', '--stream-partial-output', '--force', '--trust');
+      args.push(
+        '--print',
+        '--output-format',
+        'stream-json',
+        '--stream-partial-output',
+        '--force',
+        '--trust',
+      );
       if (runtimeContext.cwd) {
         args.push('--workspace', runtimeContext.cwd);
       }
@@ -483,13 +517,7 @@ export const AGENT_DEFS = [
       { id: 'gpt-5.2', label: 'GPT-5.2' },
     ],
     buildArgs: (_prompt, _imagePaths, extraAllowedDirs = [], options = {}) => {
-      const args = [
-        '-p',
-        '-',
-        '--allow-all-tools',
-        '--output-format',
-        'json',
-      ];
+      const args = ['-p', '-', '--allow-all-tools', '--output-format', 'json'];
       if (options.model && options.model !== 'default') {
         args.push('--model', options.model);
       }
@@ -526,7 +554,10 @@ export const AGENT_DEFS = [
     // `pi --list-models` fails or times out.
     fallbackModels: [
       DEFAULT_MODEL_OPTION,
-      { id: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (anthropic)' },
+      {
+        id: 'anthropic/claude-sonnet-4-5',
+        label: 'Claude Sonnet 4.5 (anthropic)',
+      },
       { id: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5 (anthropic)' },
       { id: 'openai/gpt-5', label: 'GPT-5 (openai)' },
       { id: 'openai/o4-mini', label: 'o4-mini (openai)' },
@@ -546,7 +577,13 @@ export const AGENT_DEFS = [
     // pi's RPC mode drives the entire conversation over stdio JSON-RPC.
     // The daemon sends a `prompt` command and pi streams back typed events.
     // No prompt in argv — avoids ENAMETOOLONG and keeps the protocol clean.
-    buildArgs: (_prompt, _imagePaths, _extra, options = {}, runtimeContext = {}) => {
+    buildArgs: (
+      _prompt,
+      _imagePaths,
+      _extra,
+      options = {},
+      runtimeContext = {},
+    ) => {
       const args = ['--mode', 'rpc', '--no-session'];
       if (options.model && options.model !== 'default') {
         // pi --model accepts patterns ("sonnet", "anthropic/claude-sonnet-4-5",
@@ -577,9 +614,7 @@ export const AGENT_DEFS = [
         timeoutMs: 15_000,
         defaultModelOption: DEFAULT_MODEL_OPTION,
       }),
-    fallbackModels: [
-      DEFAULT_MODEL_OPTION,
-    ],
+    fallbackModels: [DEFAULT_MODEL_OPTION],
     buildArgs: () => ['acp'],
     streamFormat: 'acp-json-rpc',
   },
@@ -595,16 +630,7 @@ export const AGENT_DEFS = [
         timeoutMs: 15_000,
         defaultModelOption: DEFAULT_MODEL_OPTION,
       }),
-    fallbackModels: [
-      DEFAULT_MODEL_OPTION,
-      { id: 'anthropic/claude-sonnet-latest', label: 'Claude Sonnet (latest)' },
-      { id: 'anthropic/claude-opus-latest', label: 'Claude Opus (latest)' },
-      { id: 'anthropic/claude-haiku-latest', label: 'Claude Haiku (latest)' },
-      { id: 'openai/gpt-latest', label: 'GPT (latest)' },
-      { id: 'openai/gpt-mini-latest', label: 'GPT Mini (latest)' },
-      { id: 'google/gemini-pro-latest', label: 'Gemini Pro (latest)' },
-      { id: 'google/gemini-flash-latest', label: 'Gemini Flash (latest)' },
-    ],
+    fallbackModels: [DEFAULT_MODEL_OPTION],
     buildArgs: () => ['acp'],
     streamFormat: 'acp-json-rpc',
   },
@@ -620,9 +646,7 @@ export const AGENT_DEFS = [
         timeoutMs: 15_000,
         defaultModelOption: DEFAULT_MODEL_OPTION,
       }),
-    fallbackModels: [
-      DEFAULT_MODEL_OPTION,
-    ],
+    fallbackModels: [DEFAULT_MODEL_OPTION],
     buildArgs: () => [],
     streamFormat: 'acp-json-rpc',
   },
@@ -670,10 +694,18 @@ function userToolchainDirs() {
     path.join(home, '.asdf', 'shims'),
     path.join(home, 'Library', 'pnpm'),
     path.join(home, '.cargo', 'bin'),
-    ...(process.platform !== 'win32' && !homeOverride ? ['/opt/homebrew/bin', '/usr/local/bin'] : []),
-    ...existingDirsUnder(path.join(home, '.local', 'share', 'mise', 'installs', 'node'), ['bin']),
+    ...(process.platform !== 'win32' && !homeOverride
+      ? ['/opt/homebrew/bin', '/usr/local/bin']
+      : []),
+    ...existingDirsUnder(
+      path.join(home, '.local', 'share', 'mise', 'installs', 'node'),
+      ['bin'],
+    ),
     ...existingDirsUnder(path.join(home, '.nvm', 'versions', 'node'), ['bin']),
-    ...existingDirsUnder(path.join(home, '.local', 'share', 'fnm', 'node-versions'), ['installation', 'bin']),
+    ...existingDirsUnder(
+      path.join(home, '.local', 'share', 'fnm', 'node-versions'),
+      ['installation', 'bin'],
+    ),
   ];
   return cachedToolchainDirs;
 }
@@ -717,7 +749,10 @@ export function resolveOnPath(bin) {
 // when no candidate is on PATH.
 export function resolveAgentExecutable(def) {
   if (!def?.bin) return null;
-  const candidates = [def.bin, ...(Array.isArray(def.fallbackBins) ? def.fallbackBins : [])];
+  const candidates = [
+    def.bin,
+    ...(Array.isArray(def.fallbackBins) ? def.fallbackBins : []),
+  ];
   for (const bin of candidates) {
     const resolved = resolveOnPath(bin);
     if (resolved) return resolved;
@@ -766,7 +801,9 @@ async function probe(def) {
   }
   let version = null;
   try {
-    const { stdout } = await execFileP(resolved, def.versionArgs, { timeout: 3000 });
+    const { stdout } = await execFileP(resolved, def.versionArgs, {
+      timeout: 3000,
+    });
     version = stdout.trim().split('\n')[0];
   } catch {
     // binary exists but --version failed; still mark available
@@ -819,7 +856,6 @@ function stripFns(def) {
   } = def;
   return rest;
 }
-
 
 export async function detectAgents() {
   const results = await Promise.all(AGENT_DEFS.map(probe));
@@ -879,7 +915,9 @@ export function rememberLiveModels(agentId, models) {
   if (!Array.isArray(models)) return;
   liveModelCache.set(
     agentId,
-    new Set(models.map((m) => m && m.id).filter((id) => typeof id === 'string')),
+    new Set(
+      models.map((m) => m && m.id).filter((id) => typeof id === 'string'),
+    ),
   );
 }
 
