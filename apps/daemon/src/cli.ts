@@ -46,8 +46,17 @@ const MEDIA_GENERATE_BOOLEAN_FLAGS = new Set([
   'h',
 ]);
 
+const MCP_STRING_FLAGS = new Set([
+  'daemon-url',
+]);
+const MCP_BOOLEAN_FLAGS = new Set([
+  'help',
+  'h',
+]);
+
 const SUBCOMMAND_MAP = {
   media: runMedia,
+  mcp: runMcp,
 };
 
 const first = argv.find((a) => !a.startsWith('-'));
@@ -60,12 +69,15 @@ if (first && SUBCOMMAND_MAP[first]) {
 
 // Default: daemon mode.
 let port = Number(process.env.OD_PORT) || 7456;
+let host = process.env.OD_BIND_HOST || '127.0.0.1';
 let open = true;
 
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '-p' || a === '--port') {
     port = Number(argv[++i]);
+  } else if (a === '--host') {
+    host = argv[++i];
   } else if (a === '--no-open') {
     open = false;
   } else if (a === '-h' || a === '--help') {
@@ -74,7 +86,7 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
-startServer({ port }).then(url => {
+startServer({ port, host }).then(url => {
   console.log(`[od] listening on ${url}`);
   if (open) {
     const opener = process.platform === 'darwin' ? 'open'
@@ -88,17 +100,31 @@ startServer({ port }).then(url => {
 
 function printRootHelp() {
   console.log(`Usage:
-  od [--port <n>] [--no-open]
+  od [--port <n>] [--host <addr>] [--no-open]
       Start the local daemon and open the web UI.
 
   od media generate --surface <image|video|audio> --model <id> [opts]
       Generate a media artifact and write it into the active project.
-      Designed to be invoked by a code agent — picks up OD_DAEMON_URL
+      Designed to be invoked by a code agent - picks up OD_DAEMON_URL
       and OD_PROJECT_ID from the env that the daemon injected on spawn.
+
+  od mcp [--daemon-url <url>]
+      Run a stdio MCP server that proxies read-only tool calls to a
+      running Open Design daemon. Wire it into a coding agent
+      (Claude Code, Cursor, VS Code, Zed, Windsurf) in another repo
+      to pull files from a local Open Design project without
+      exporting a zip.
+
+Options:
+  --port <n>       Port to listen on (default: 7456, env: OD_PORT).
+  --host <addr>    Interface address to bind to (default: 127.0.0.1, env: OD_BIND_HOST).
+                   Set to a specific IP (e.g. a Tailscale address) to restrict access
+                   to that interface only.
+  --no-open        Do not open the browser after start.
 
 What the daemon does:
   * scans PATH for installed code-agent CLIs (claude, codex, devin, gemini, opencode, cursor-agent, ...)
-  * serves the chat UI at http://localhost:<port>
+  * serves the chat UI at http://<host>:<port>
   * proxies messages (text + images) to the selected agent via child-process spawn
   * exposes /api/projects/:id/media/generate — the unified image/video/audio
     dispatcher that the agent calls via \`od media generate\`.`);
@@ -335,7 +361,7 @@ function surfaceFetchError(err, daemonUrl) {
     console.error(
       'hint: outbound connect was denied by a sandbox. If you launched ' +
         'this command from a code agent, check the agent\'s sandbox / ' +
-        'network policy. The OD daemon itself is unaffected — it can be ' +
+        'network policy. The Open Design daemon itself is unaffected - it can be ' +
         'reached from a regular shell.',
     );
   }
@@ -418,4 +444,65 @@ Output: a single line of JSON: {"file": { name, size, kind, mime, ... }}.
 Skills should call this and then reference the returned filename in their
 artifact / message body. The daemon writes the bytes into the project's
 files folder so the FileViewer can preview them immediately.`);
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand: od mcp
+// ---------------------------------------------------------------------------
+
+async function runMcp(args) {
+  let flags;
+  try {
+    flags = parseFlags(args, {
+      string: MCP_STRING_FLAGS,
+      boolean: MCP_BOOLEAN_FLAGS,
+    });
+  } catch (err) {
+    console.error(err.message);
+    printMcpHelp();
+    process.exit(2);
+  }
+  if (flags.help || flags.h) {
+    printMcpHelp();
+    return;
+  }
+
+  const daemonUrl =
+    flags['daemon-url'] || process.env.OD_DAEMON_URL || 'http://127.0.0.1:7456';
+
+  const { runMcpStdio } = await import('./mcp.js');
+  await runMcpStdio({ daemonUrl });
+}
+
+function printMcpHelp() {
+  console.log(`Usage: od mcp [--daemon-url <url>]
+
+Run a stdio MCP (Model Context Protocol) server that proxies read-only
+tool calls to a running Open Design daemon. Wire it into a coding agent
+in another repo so the agent can pull files from a local Open Design
+project without exporting a zip every iteration.
+
+Options:
+  --daemon-url <url>   Open Design daemon HTTP base URL (default: env
+                       OD_DAEMON_URL, falling back to http://127.0.0.1:7456).
+
+Tools exposed:
+  list_projects                  list every Open Design project
+  get_active_context             what project/file the user has open right now
+  get_artifact([project, entry]) bundle: entry file + every referenced sibling
+  get_project([project])         single project metadata
+  get_file([project, path])      file contents (textual mimes only for now)
+  search_files(query[, project]) literal substring search across textual files
+  list_files([project])          project files + artifactManifest sidecars
+
+When project is omitted, get_artifact / get_project / get_file /
+search_files / list_files default to the project the user has open in
+Open Design; get_artifact and get_file additionally default to the
+active file. The response stamps usedActiveContext so callers can see
+which project/file got resolved.
+
+For the copy-paste, per-client snippet (with absolute paths resolved
+for your machine, plus a one-click deeplink for Cursor), open Settings
+→ MCP server in the Open Design app. Read-only by design; the daemon
+must be running locally for tool calls to succeed.`);
 }

@@ -18,13 +18,16 @@ import type { ProjectFilePreview } from '../providers/registry';
 import {
   exportAsHtml,
   exportAsJsx,
+  exportAsMd,
   exportAsPdf,
-  exportAsZip,
+  exportProjectAsZip,
   exportReactComponentAsHtml,
   exportReactComponentAsZip,
+  openSandboxedPreviewInNewTab,
 } from '../runtime/exports';
 import { buildReactComponentSrcdoc } from '../runtime/react-component';
 import { buildSrcdoc } from '../runtime/srcdoc';
+import { parseForceInline, shouldUrlLoadHtmlPreview } from './file-viewer-render-mode';
 import { saveTemplate } from '../state/projects';
 import type { DeployConfigResponse, DeployProjectFileResponse, ProjectFile } from '../types';
 import { Icon } from './Icon';
@@ -619,6 +622,13 @@ function HtmlViewer({
   const [inTabPresent, setInTabPresent] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [commentMode, setCommentMode] = useState(false);
+  // Opt back into the legacy inline-asset srcDoc path via `?forceInline=1`
+  // on the host page. Lets users escape-hatch around the URL-load default
+  // for non-deck HTML that depends on the in-iframe localStorage shim.
+  const forceInline = useMemo(
+    () => (typeof window === 'undefined' ? false : parseForceInline(window.location.search)),
+    [],
+  );
   const [activeCommentTarget, setActiveCommentTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [hoveredCommentTarget, setHoveredCommentTarget] = useState<PreviewCommentSnapshot | null>(null);
   const [liveCommentTargets, setLiveCommentTargets] = useState<Map<string, PreviewCommentSnapshot>>(() => new Map());
@@ -678,9 +688,23 @@ function HtmlViewer({
   }, [source]);
   const effectiveDeck = isDeck || looksLikeDeck;
   const previewSource = inlinedSource ?? source;
+  // When we URL-load the iframe directly, skip every in-host inlining /
+  // srcDoc-rebuilding step. The browser does the asset resolution itself,
+  // which is the whole point of the URL-load path.
+  const useUrlLoadPreview = shouldUrlLoadHtmlPreview({
+    mode,
+    isDeck: effectiveDeck,
+    commentMode,
+    forceInline,
+  });
+  const previewSrcUrl = useMemo(
+    () => `${projectRawUrl(projectId, file.name)}?v=${Math.round(file.mtime)}&r=${reloadKey}`,
+    [projectId, file.name, file.mtime, reloadKey],
+  );
 
   useEffect(() => {
     setInlinedSource(null);
+    if (useUrlLoadPreview) return;
     if (!source || effectiveDeck || !hasRelativeAssetRefs(source)) return;
     let cancelled = false;
     void inlineRelativeAssets(source, projectId, file.name).then((next) => {
@@ -689,7 +713,7 @@ function HtmlViewer({
     return () => {
       cancelled = true;
     };
-  }, [source, effectiveDeck, projectId, file.name]);
+  }, [source, effectiveDeck, projectId, file.name, useUrlLoadPreview]);
 
   const srcDoc = useMemo(
     () => (previewSource ? buildSrcdoc(previewSource, {
@@ -884,10 +908,11 @@ function HtmlViewer({
 
   function openInNewTab() {
     if (!source) return;
-    const blob = new Blob([source], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    openSandboxedPreviewInNewTab(source, exportTitle, {
+      deck: effectiveDeck,
+      baseHref: projectRawUrl(projectId, baseDirFor(file.name)),
+      initialSlideIndex: htmlPreviewSlideState.get(previewStateKey)?.active ?? 0,
+    });
   }
 
   // Snapshot this project as a reusable template. The daemon snapshots
@@ -1301,7 +1326,12 @@ function HtmlViewer({
                     role="menuitem"
                     onClick={() => {
                       setShareMenuOpen(false);
-                      exportAsZip(source ?? '', exportTitle);
+                      void exportProjectAsZip({
+                        projectId,
+                        filePath: file.name,
+                        fallbackHtml: source ?? '',
+                        fallbackTitle: exportTitle,
+                      });
                     }}
                   >
                     <span className="share-menu-icon"><Icon name="download" size={14} /></span>
@@ -1318,6 +1348,24 @@ function HtmlViewer({
                   >
                     <span className="share-menu-icon"><Icon name="file-code" size={14} /></span>
                     <span>{t('fileViewer.exportHtml')}</span>
+                  </button>
+                  {/* Export as Markdown — pass-through download of the
+                      artifact source with a `.md` extension. No conversion
+                      runs; the file body is identical to the Source view.
+                      Useful for piping the artifact into markdown-aware
+                      tooling (LLM context windows, vault apps). See
+                      issue #279. */}
+                  <button
+                    type="button"
+                    className="share-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setShareMenuOpen(false);
+                      exportAsMd(source ?? '', exportTitle);
+                    }}
+                  >
+                    <span className="share-menu-icon"><Icon name="file" size={14} /></span>
+                    <span>{t('fileViewer.exportMd')}</span>
                   </button>
                   <div className="share-menu-divider" />
                   <button
@@ -1380,21 +1428,35 @@ function HtmlViewer({
           <div className="viewer-empty">{t('fileViewer.loading')}</div>
         ) : mode === 'preview' ? (
           <div className="comment-preview-layer">
-            <div
-              style={{
-                width: `${100 / previewScale}%`,
-                height: `${100 / previewScale}%`,
-                transform: `scale(${previewScale})`,
-                transformOrigin: '0 0',
-              }}
-            >
-              <iframe
-                ref={iframeRef}
-                data-testid="artifact-preview-frame"
-                title={file.name}
-                sandbox="allow-scripts"
-                srcDoc={srcDoc}
-              />
+            <div className="comment-frame-clip">
+              <div
+                style={{
+                  width: `${100 / previewScale}%`,
+                  height: `${100 / previewScale}%`,
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: '0 0',
+                }}
+              >
+                {useUrlLoadPreview ? (
+                  <iframe
+                    ref={iframeRef}
+                    data-testid="artifact-preview-frame"
+                    data-od-render-mode="url-load"
+                    title={file.name}
+                    sandbox="allow-scripts"
+                    src={previewSrcUrl}
+                  />
+                ) : (
+                  <iframe
+                    ref={iframeRef}
+                    data-testid="artifact-preview-frame"
+                    data-od-render-mode="srcdoc"
+                    title={file.name}
+                    sandbox="allow-scripts"
+                    srcDoc={srcDoc}
+                  />
+                )}
+              </div>
             </div>
             {commentMode ? (
               <CommentPreviewOverlays
@@ -1448,7 +1510,21 @@ function HtmlViewer({
           >
             <Icon name="close" size={13} /> {t('fileViewer.exitPresentation')}
           </button>
-          <iframe title="present" sandbox="allow-scripts" srcDoc={srcDoc} />
+          {useUrlLoadPreview ? (
+            <iframe
+              title="present"
+              sandbox="allow-scripts"
+              data-od-render-mode="url-load"
+              src={previewSrcUrl}
+            />
+          ) : (
+            <iframe
+              title="present"
+              sandbox="allow-scripts"
+              data-od-render-mode="srcdoc"
+              srcDoc={srcDoc}
+            />
+          )}
         </div>
       ) : null}
       {deployModalOpen ? (
@@ -1669,7 +1745,7 @@ async function inlineRelativeAssets(
   const resolved = (await Promise.all(replacements)).filter(
     (item): item is { from: string; to: string } => item !== null,
   );
-  return resolved.reduce((next, { from, to }) => next.replace(from, to), html);
+  return resolved.reduce((next, { from, to }) => next.replace(from, () => to), html);
 }
 
 async function fetchProjectRelativeText(

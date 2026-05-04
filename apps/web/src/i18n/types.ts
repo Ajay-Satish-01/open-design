@@ -1,8 +1,8 @@
 // Supported UI locales. Adding a new locale requires creating a new
 // dictionary in `./locales/` and registering it in `./index.tsx`.
-export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ja' | 'ko' | 'pl' | 'hu';
+export type Locale = 'en' | 'de' | 'zh-CN' | 'zh-TW' | 'pt-BR' | 'es-ES' | 'ru' | 'fa' | 'ar' | 'ja' | 'ko' | 'pl' | 'hu' | 'fr' | 'uk';
 
-export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ja', 'ko', 'pl', 'hu'];
+export const LOCALES: Locale[] = ['en', 'de', 'zh-CN', 'zh-TW', 'pt-BR', 'es-ES', 'ru', 'fa', 'ar', 'ja', 'ko', 'pl', 'hu', 'fr', 'uk'];
 
 export const LOCALE_LABEL: Record<Locale, string> = {
   'en': 'English',
@@ -13,10 +13,13 @@ export const LOCALE_LABEL: Record<Locale, string> = {
   'es-ES': 'Español (España)',
   'ru': 'Русский',
   'fa': 'فارسی',
+  'ar': 'العربية',
   'ja': '日本語',
   'ko': '한국어',
   'pl': 'Polski',
-  'hu': 'Magyar'
+  'hu': 'Magyar',
+  'fr': 'Français',
+  'uk': 'Українська'
 };
 
 // Translation dictionary shape — flat keys, dot-namespaced. We keep it
@@ -74,6 +77,7 @@ export interface Dict {
   'settings.title': string;
   'settings.subtitle': string;
   'settings.modeAria': string;
+  'settings.protocolAria': string;
   'settings.modeDaemon': string;
   'settings.modeDaemonHelp': string;
   'settings.modeDaemonOffline': string;
@@ -85,17 +89,27 @@ export interface Dict {
   'settings.codeAgentHint': string;
   'settings.rescan': string;
   'settings.rescanTitle': string;
+  'settings.rescanRunning': string;
+  'settings.rescanSuccess': string;
+  'settings.rescanFailed': string;
   'settings.noAgentsDetected': string;
   'settings.apiSection': string;
+  'settings.quickFillProvider': string;
+  'settings.customProvider': string;
   'settings.apiKey': string;
   'settings.showKey': string;
   'settings.hideKey': string;
   'settings.show': string;
   'settings.hide': string;
   'settings.model': string;
+  'settings.suggestedModelsHint': string;
   'settings.maxTokens': string;
   'settings.maxTokensHint': string;
   'settings.baseUrl': string;
+  'settings.baseUrlInvalid': string;
+  'settings.azureDeploymentModel': string;
+  'settings.azureDeploymentModelHint': string;
+  'settings.apiVersion': string;
   'settings.apiHint': string;
   'settings.skipForNow': string;
   'settings.getStarted': string;
@@ -135,6 +149,32 @@ export interface Dict {
   'settings.runtimePackaged': string;
   'settings.runtimeDevelopment': string;
   'settings.versionUnavailable': string;
+
+  // Notifications (settings + system notifications)
+  'settings.notifications': string;
+  'settings.notificationsHint': string;
+  'settings.notifyCompletionSound': string;
+  'settings.notifyCompletionSoundHint': string;
+  'settings.notifySuccessSound': string;
+  'settings.notifyFailureSound': string;
+  'settings.notifyDesktop': string;
+  'settings.notifyDesktopHint': string;
+  'settings.notifyDesktopBlocked': string;
+  'settings.notifyDesktopUnsupported': string;
+  'settings.notifyTest': string;
+  'settings.notifyTestSent': string;
+  'settings.notifyTestFailed': string;
+  'settings.notifySoundDing': string;
+  'settings.notifySoundChime': string;
+  'settings.notifySoundTwoToneUp': string;
+  'settings.notifySoundPluck': string;
+  'settings.notifySoundBuzz': string;
+  'settings.notifySoundTwoToneDown': string;
+  'settings.notifySoundThud': string;
+  'notify.successTitle': string;
+  'notify.failureTitle': string;
+  'notify.successBody': string;
+  'notify.failureBody': string;
 
   // Entry view / tabs
   'entry.tabDesigns': string;
@@ -292,6 +332,8 @@ export interface Dict {
   'examples.scenarioLegal': string;
   'examples.scenarioEducation': string;
   'examples.scenarioPersonal': string;
+  'examples.searchPlaceholder': string;
+  'examples.searchAria': string;
   'examples.emptyNoSkills': string;
   'examples.emptyNoMatch': string;
   'examples.openPreview': string;
@@ -466,6 +508,7 @@ export interface Dict {
   'designFiles.sectionImages': string;
   'designFiles.sectionSketches': string;
   'designFiles.sectionOther': string;
+  'designFiles.showMore': string;
   'designFiles.kindHtml': string;
   'designFiles.kindImage': string;
   'designFiles.kindSketch': string;
@@ -546,6 +589,7 @@ export interface Dict {
   'fileViewer.exportPptxNa': string;
   'fileViewer.exportZip': string;
   'fileViewer.exportHtml': string;
+  'fileViewer.exportMd': string;
   'fileViewer.exportJsx': string;
   'fileViewer.exportReactHtml': string;
   'fileViewer.saveAsTemplate': string;

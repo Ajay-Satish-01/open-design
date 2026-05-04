@@ -19,9 +19,16 @@ import {
   upsertPreviewComment,
   writeProjectTextFile,
 } from '../providers/registry';
+import { useProjectFileEvents } from '../providers/project-events';
 import { composeSystemPrompt } from '@open-design/contracts';
 import { navigate } from '../router';
-import { agentDisplayName } from '../utils/agentLabels';
+import { agentDisplayName, agentModelDisplayName } from '../utils/agentLabels';
+import {
+  apiProtocolAgentId,
+  apiProtocolModelLabel,
+} from '../utils/apiProtocol';
+import { playSound, showCompletionNotification } from '../utils/notifications';
+import { DEFAULT_NOTIFICATIONS } from '../state/config';
 import type { TodoItem } from '../runtime/todos';
 import {
   createConversation,
@@ -62,6 +69,7 @@ import {
 import { AppChromeHeader } from './AppChromeHeader';
 import { AvatarMenu } from './AvatarMenu';
 import { ChatPane } from './ChatPane';
+import { decideAutoOpenAfterWrite } from './auto-open-file';
 import { FileWorkspace } from './FileWorkspace';
 
 interface Props {
@@ -141,6 +149,8 @@ export function ProjectView({
   const [openRequest, setOpenRequest] = useState<{ name: string; nonce: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const cancelRef = useRef<AbortController | null>(null);
+  const sendTextBufferRef = useRef<BufferedTextUpdates | null>(null);
+  const reattachTextBuffersRef = useRef<Set<BufferedTextUpdates>>(new Set());
   const reattachControllersRef = useRef<Map<string, AbortController>>(new Map());
   const reattachCancelControllersRef = useRef<Map<string, AbortController>>(new Map());
   const completedReattachRunsRef = useRef<Set<string>>(new Set());
@@ -216,6 +226,10 @@ export function ProjectView({
 
   useEffect(() => {
     return () => {
+      sendTextBufferRef.current?.cancel();
+      sendTextBufferRef.current = null;
+      for (const textBuffer of reattachTextBuffersRef.current) textBuffer.cancel();
+      reattachTextBuffersRef.current.clear();
       for (const controller of reattachControllersRef.current.values()) {
         controller.abort();
       }
@@ -226,6 +240,70 @@ export function ProjectView({
       reattachCancelControllersRef.current.clear();
     };
   }, [project.id, activeConversationId]);
+
+  const cancelSendTextBuffer = useCallback((flushPending = false) => {
+    if (flushPending) sendTextBufferRef.current?.flush();
+    sendTextBufferRef.current?.cancel();
+    sendTextBufferRef.current = null;
+  }, []);
+
+  const cancelReattachTextBuffers = useCallback((flushPending = false) => {
+    for (const textBuffer of reattachTextBuffersRef.current) {
+      if (flushPending) textBuffer.flush();
+      textBuffer.cancel();
+    }
+    reattachTextBuffersRef.current.clear();
+  }, []);
+
+  // Detect the streaming `true → false` edge so we can fire the optional
+  // completion sound / desktop notification exactly once per turn. Initial
+  // mount keeps `prevStreamingRef.current = false`, so loading historical
+  // conversations (where `streaming` is also false) never triggers a stray
+  // ding. `messages` is on the dep array so the latest assistant message's
+  // runStatus is visible at the moment we edge-detect; the early-return
+  // guarantees only the edge actually does anything.
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current;
+    prevStreamingRef.current = streaming;
+    if (!(wasStreaming && !streaming)) return;
+
+    const last = [...messages].reverse().find((m) => m.role === 'assistant');
+    if (!last) return;
+    const status = last.runStatus;
+    if (status !== 'succeeded' && status !== 'failed') return;
+
+    const cfg = config.notifications ?? DEFAULT_NOTIFICATIONS;
+    if (cfg.soundEnabled) {
+      playSound(status === 'succeeded' ? cfg.successSoundId : cfg.failureSoundId);
+    }
+
+    if (cfg.desktopEnabled) {
+      // Successes only interrupt when the user is on another tab/window.
+      // Failures alert regardless — losing a long agent run silently is
+      // worse than a small interruption when the page is in focus.
+      const isHidden = typeof document !== 'undefined' && document.hidden;
+      const isFocused = typeof document === 'undefined' ? true : document.hasFocus();
+      if (status === 'failed' || isHidden || !isFocused) {
+        const title = status === 'succeeded'
+          ? t('notify.successTitle')
+          : t('notify.failureTitle');
+        const fallbackBody = status === 'succeeded'
+          ? t('notify.successBody')
+          : t('notify.failureBody');
+        const trimmed = (last.content ?? '').trim();
+        const body = trimmed ? trimmed.slice(0, 80) : fallbackBody;
+        void showCompletionNotification({
+          status,
+          title,
+          body,
+          onClick: () => {
+            if (typeof window !== 'undefined') window.focus();
+          },
+        });
+      }
+    }
+  }, [streaming, messages, config.notifications, t]);
 
   // Hydrate the open-tabs state once per project. After this initial
   // load, every mutation flows through saveTabsState() which keeps DB +
@@ -285,6 +363,15 @@ export function ProjectView({
     if (!daemonLive) return;
     void refreshProjectFiles();
   }, [daemonLive, refreshProjectFiles, filesRefresh]);
+
+  // Live-reload: when the daemon's chokidar watcher reports a file change,
+  // bump filesRefresh so the file list refetches with new mtimes — which
+  // propagates through to FileViewer iframes via PR #384's ?v=${mtime}
+  // cache-bust, triggering an automatic preview reload without a click.
+  const handleProjectFileChange = useCallback(() => {
+    setFilesRefresh((n) => n + 1);
+  }, []);
+  useProjectFileEvents(project.id, daemonLive, handleProjectFileChange);
 
   // When the URL points at a specific file, fire an open request so the
   // FileWorkspace promotes it to an active tab. We watch routeFileName
@@ -562,7 +649,16 @@ export function ProjectView({
             clearTimeout(persistTimer);
             persistTimer = null;
           }
+          textBuffer.flush();
           persistMessageById(message.id);
+        };
+        const textBuffer = createBufferedTextUpdates({
+          updateMessage: (updater) => updateMessageById(message.id, updater),
+          persistSoon,
+        });
+        reattachTextBuffersRef.current.add(textBuffer);
+        const unregisterTextBuffer = () => {
+          reattachTextBuffersRef.current.delete(textBuffer);
         };
 
         void reattachDaemonRun({
@@ -572,14 +668,15 @@ export function ProjectView({
           initialLastEventId: message.lastRunEventId ?? null,
           handlers: {
             onDelta: (delta) => {
-              updateMessageById(message.id, (prev) => ({ ...prev, content: prev.content + delta }));
-              persistSoon();
+              textBuffer.appendContent(delta);
             },
             onAgentEvent: (ev) => {
-              updateMessageById(message.id, (prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
-              persistSoon();
+              textBuffer.appendEvent(ev);
             },
             onDone: () => {
+              textBuffer.flush();
+              textBuffer.cancel();
+              unregisterTextBuffer();
               updateMessageById(
                 message.id,
                 (prev) => ({ ...prev, runStatus: 'succeeded', endedAt: prev.endedAt ?? Date.now() }),
@@ -596,6 +693,9 @@ export function ProjectView({
               onProjectsRefresh();
             },
             onError: (err) => {
+              textBuffer.flush();
+              textBuffer.cancel();
+              unregisterTextBuffer();
               setError(err.message);
               updateMessageById(
                 message.id,
@@ -612,6 +712,7 @@ export function ProjectView({
             },
           },
           onRunStatus: (runStatus) => {
+            textBuffer.flush();
             updateMessageById(
               message.id,
               (prev) => ({
@@ -622,6 +723,8 @@ export function ProjectView({
               true,
             );
             if (runStatus === 'canceled') {
+              textBuffer.cancel();
+              unregisterTextBuffer();
               completedReattachRunsRef.current.add(runId);
               reattachControllersRef.current.delete(runId);
               reattachCancelControllersRef.current.delete(runId);
@@ -632,6 +735,7 @@ export function ProjectView({
             }
           },
           onRunEventId: (lastRunEventId) => {
+            textBuffer.flush();
             updateMessageById(message.id, (prev) => ({ ...prev, lastRunEventId }));
             persistSoon();
           },
@@ -642,6 +746,9 @@ export function ProjectView({
             }
           })
           .finally(() => {
+            textBuffer.flush();
+            textBuffer.cancel();
+            unregisterTextBuffer();
             if (persistTimer) clearTimeout(persistTimer);
             reattachControllersRef.current.delete(runId);
             reattachCancelControllersRef.current.delete(runId);
@@ -689,12 +796,22 @@ export function ProjectView({
         config.mode === 'daemon' && config.agentId
           ? agentsById.get(config.agentId)
           : null;
+      const selectedAgentChoice =
+        config.mode === 'daemon' && config.agentId
+          ? config.agentModels?.[config.agentId]
+          : undefined;
       const assistantAgentId =
-        config.mode === 'daemon' ? config.agentId ?? undefined : 'anthropic-api';
+        config.mode === 'daemon'
+          ? config.agentId ?? undefined
+          : apiProtocolAgentId(config.apiProtocol);
       const assistantAgentName =
         config.mode === 'daemon'
-          ? assistantAgentDisplayName(config.agentId, selectedAgent?.name)
-          : 'Anthropic API';
+          ? agentModelDisplayName(
+              config.agentId,
+              selectedAgent?.name,
+              selectedAgentChoice?.model,
+            )
+          : apiProtocolModelLabel(config.apiProtocol, config.model);
       const assistantId = crypto.randomUUID();
       const assistantMsg: ChatMessage = {
         id: assistantId,
@@ -756,6 +873,7 @@ export function ProjectView({
         }, 500);
       };
       const pushEvent = (ev: AgentEvent) => {
+        textBuffer.flush();
         updateAssistant((prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
         persistAssistantSoon();
         // Track Write tool invocations so we can auto-open the destination
@@ -765,28 +883,36 @@ export function ProjectView({
         if (ev.kind === 'tool_use' && (ev.name === 'Write' || ev.name === 'Edit')) {
           const filePath = (ev.input as { file_path?: unknown } | null)?.file_path;
           if (typeof filePath === 'string' && filePath.length > 0) {
-            const base = filePath.split('/').pop() || filePath;
-            pendingWritesRef.current.set(ev.id, base);
+            // Preserve the full path so decideAutoOpenAfterWrite can do a
+            // path-suffix match against the project's relative file paths.
+            // Reducing to a basename here would lose the segment alignment
+            // we need to disambiguate same-basename collisions across the
+            // project tree and outside it.
+            pendingWritesRef.current.set(ev.id, filePath);
           }
         }
         if (ev.kind === 'tool_result') {
-          const base = pendingWritesRef.current.get(ev.toolUseId);
-          if (base) {
+          const filePath = pendingWritesRef.current.get(ev.toolUseId);
+          if (filePath) {
             pendingWritesRef.current.delete(ev.toolUseId);
             if (!ev.isError) {
               // Refresh first so FileWorkspace's file list (and the tab
               // body) sees the new content before we ask it to focus.
-              void refreshProjectFiles().then(() => {
-                requestOpenFile(base);
+              // Only auto-open if the file actually landed in the project's
+              // file list — otherwise an out-of-project Write (e.g. an
+              // upstream repo edit) would spawn a permanent placeholder tab.
+              void refreshProjectFiles().then((nextFiles) => {
+                const decision = decideAutoOpenAfterWrite(filePath, nextFiles);
+                if (decision.shouldOpen && decision.fileName) {
+                  requestOpenFile(decision.fileName);
+                }
               });
             }
           }
         }
       };
 
-      const appendContent = (delta: string) => {
-        updateAssistant((prev) => ({ ...prev, content: prev.content + delta }));
-        persistAssistantSoon();
+      const applyContentDelta = (delta: string) => {
         for (const ev of parser.feed(delta)) {
           if (ev.type === 'artifact:start') {
             liveHtml = '';
@@ -813,14 +939,27 @@ export function ProjectView({
         }
       };
 
+      const textBuffer = createBufferedTextUpdates({
+        updateMessage: updateAssistant,
+        persistSoon: persistAssistantSoon,
+        onContentDelta: applyContentDelta,
+      });
+      sendTextBufferRef.current = textBuffer;
+
       const controller = new AbortController();
       const cancelController = new AbortController();
       abortRef.current = controller;
       cancelRef.current = cancelController;
       const handlers = {
-        onDelta: appendContent,
-        onAgentEvent: pushEvent,
+        onDelta: textBuffer.appendContent,
+        onAgentEvent: (ev: AgentEvent) => {
+          if (ev.kind === 'text') textBuffer.appendTextEvent(ev.text);
+          else pushEvent(ev);
+        },
         onDone: () => {
+          textBuffer.flush();
+          textBuffer.cancel();
+          cancelSendTextBuffer();
           for (const ev of parser.flush()) {
             if (ev.type === 'artifact:end') {
               setArtifact((prev) => (prev ? { ...prev, html: ev.fullContent } : null));
@@ -829,7 +968,7 @@ export function ProjectView({
           updateAssistant((prev) => ({
             ...prev,
             endedAt: Date.now(),
-            runStatus: prev.runId ? 'succeeded' : prev.runStatus,
+            runStatus: config.mode === 'api' || prev.runId ? 'succeeded' : prev.runStatus,
           }));
           if (commentAttachments.length > 0) {
             void patchAttachedStatuses(commentAttachments, 'needs_review');
@@ -866,11 +1005,16 @@ export function ProjectView({
           onProjectsRefresh();
         },
         onError: (err: Error) => {
+          textBuffer.flush();
+          textBuffer.cancel();
+          cancelSendTextBuffer();
           setError(err.message);
           updateAssistant((prev) => ({
             ...prev,
             endedAt: Date.now(),
-            runStatus: prev.runId || isActiveRunStatus(prev.runStatus) ? 'failed' : prev.runStatus,
+            runStatus: config.mode === 'api' || prev.runId || isActiveRunStatus(prev.runStatus)
+              ? 'failed'
+              : prev.runStatus,
           }));
           if (commentAttachments.length > 0) {
             void patchAttachedStatuses(commentAttachments, 'failed');
@@ -892,7 +1036,7 @@ export function ProjectView({
           handlers.onError(new Error('Pick a local agent first (top bar).'));
           return;
         }
-        const choice = config.agentModels?.[config.agentId];
+        const choice = selectedAgentChoice;
         void streamViaDaemon({
           agentId: config.agentId,
           history: nextHistory,
@@ -1085,6 +1229,8 @@ export function ProjectView({
 
   const handleStop = useCallback(() => {
     const stoppedAt = Date.now();
+    cancelSendTextBuffer(true);
+    cancelReattachTextBuffers(true);
     cancelRef.current?.abort();
     cancelRef.current = null;
     for (const controller of reattachCancelControllersRef.current.values()) {
@@ -1117,7 +1263,7 @@ export function ProjectView({
       for (const message of finalized) persistMessage(message);
       return next;
     });
-  }, [persistMessage]);
+  }, [cancelSendTextBuffer, cancelReattachTextBuffers, persistMessage]);
 
   const handleNewConversation = useCallback(async () => {
     const fresh = await createConversation(project.id);
@@ -1329,4 +1475,129 @@ function isTerminalRunStatus(status: ChatMessage['runStatus']): boolean {
 
 function isActiveRunStatus(status: ChatMessage['runStatus']): boolean {
   return status === 'queued' || status === 'running';
+}
+
+type BufferedTextUpdates = ReturnType<typeof createBufferedTextUpdates>;
+
+function createBufferedTextUpdates({
+  updateMessage,
+  persistSoon,
+  onContentDelta,
+}: {
+  updateMessage: (updater: (prev: ChatMessage) => ChatMessage) => void;
+  persistSoon: () => void;
+  onContentDelta?: (delta: string) => void;
+}) {
+  let pendingContentDelta = '';
+  let pendingTextEventDelta = '';
+  let flushFrame: number | null = null;
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+  let flushing = false;
+  let needsFlush = false;
+  const hasDocument = typeof document !== 'undefined';
+
+  const cancelScheduledFlush = () => {
+    if (flushFrame !== null) {
+      cancelAnimationFrame(flushFrame);
+      flushFrame = null;
+    }
+    if (flushTimer !== null) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+  };
+
+  const flush = () => {
+    if (disposed) return;
+    if (flushing) {
+      needsFlush = true;
+      return;
+    }
+    cancelScheduledFlush();
+    if (!pendingContentDelta && !pendingTextEventDelta && !needsFlush) return;
+    flushing = true;
+    needsFlush = false;
+    const contentDelta = pendingContentDelta;
+    const textEventDelta = pendingTextEventDelta;
+    pendingContentDelta = '';
+    pendingTextEventDelta = '';
+    try {
+      updateMessage((prev) => ({
+        ...prev,
+        content: prev.content + contentDelta,
+        events: textEventDelta
+          ? [...(prev.events ?? []), { kind: 'text', text: textEventDelta }]
+          : prev.events,
+      }));
+      persistSoon();
+      if (contentDelta) onContentDelta?.(contentDelta);
+    } finally {
+      flushing = false;
+    }
+    if (pendingContentDelta || pendingTextEventDelta || needsFlush) {
+      needsFlush = false;
+      scheduleFlush();
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (disposed || flushFrame !== null || flushTimer !== null) return;
+    flushFrame = requestAnimationFrame(() => {
+      flushFrame = null;
+      flush();
+    });
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flush();
+    }, 250);
+  };
+
+  const appendContent = (delta: string) => {
+    if (disposed) return;
+    pendingContentDelta += delta;
+    needsFlush = true;
+    scheduleFlush();
+  };
+
+  const appendTextEvent = (delta: string) => {
+    if (disposed) return;
+    pendingTextEventDelta += delta;
+    needsFlush = true;
+    scheduleFlush();
+  };
+
+  const appendEvent = (ev: AgentEvent) => {
+    if (disposed) return;
+    if (ev.kind === 'text') {
+      appendTextEvent(ev.text);
+      return;
+    }
+    flush();
+    updateMessage((prev) => ({ ...prev, events: [...(prev.events ?? []), ev] }));
+    persistSoon();
+  };
+
+  const cancel = () => {
+    disposed = true;
+    cancelScheduledFlush();
+    pendingContentDelta = '';
+    pendingTextEventDelta = '';
+    needsFlush = false;
+    if (hasDocument) {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    }
+  };
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden') {
+      flush();
+    }
+  }
+
+  if (hasDocument) {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
+
+  return { appendContent, appendTextEvent, appendEvent, flush, cancel };
 }

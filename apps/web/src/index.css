@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+
 /* ============================================================
    Open Design — visual language modeled on claude.ai/design
    ============================================================ */
@@ -578,7 +580,7 @@ code {
 /* -------- Split / panes -------------------------------------------- */
 .split {
   display: grid;
-  grid-template-columns: minmax(380px, 460px) 1fr;
+  grid-template-columns: minmax(380px, 460px) minmax(0, 1fr);
   min-height: 0;
 }
 .pane {
@@ -1151,12 +1153,13 @@ code {
 /* Segmented control */
 .seg-control {
   display: grid;
-  grid-template-columns: repeat(var(--seg-cols, 2), 1fr);
+  grid-template-columns: repeat(var(--seg-cols, 2), minmax(0, 1fr));
   gap: 6px;
   padding: 4px;
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  min-width: 0;
 }
 .seg-btn {
   display: flex;
@@ -1169,6 +1172,7 @@ code {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
 }
 .seg-btn:hover:not(:disabled):not(.active) { background: rgba(255, 255, 255, 0.5); }
 .seg-btn.active {
@@ -1176,11 +1180,82 @@ code {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
-.seg-btn .seg-title { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.seg-btn .seg-meta { font-size: 11px; color: var(--text-muted); letter-spacing: 0.01em; }
+.seg-btn .seg-title { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.seg-btn .seg-meta { font-size: 11px; color: var(--text-muted); letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .seg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* Secondary protocol selector — pill chips, wraps to multiple rows */
+.protocol-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+  padding: 0;
+  min-width: 0;
+}
+.protocol-chip {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.protocol-chip:hover:not(.active) {
+  background: var(--bg-subtle);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.protocol-chip.active {
+  background: linear-gradient(180deg, var(--bg-panel) 0%, var(--accent-tint) 100%);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 .settings-section { display: flex; flex-direction: column; gap: 12px; }
+.settings-rescan-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 96px;
+  justify-content: center;
+}
+.settings-rescan-btn.loading {
+  border-color: var(--accent-soft);
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.settings-rescan-status {
+  margin: -4px 0 0;
+  padding: 7px 10px;
+  border: 1px solid var(--green-border);
+  border-radius: var(--radius-sm);
+  background: var(--green-bg);
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.settings-rescan-status.error {
+  border-color: var(--red-border);
+  background: var(--red-bg);
+  color: var(--red);
+}
+.settings-field-error {
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.4;
+}
 
 .settings-about-list {
   margin: 0;
@@ -1287,6 +1362,10 @@ code {
   align-items: flex-start;
   gap: 12px;
 }
+.section-head > div {
+  max-width: 100%;
+  min-width: 0;
+}
 .section-head h3 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
 .section-head .hint { margin-top: 2px; }
 .field { display: flex; flex-direction: column; gap: 4px; }
@@ -1354,13 +1433,12 @@ code {
   position: fixed;
   z-index: 1000;
   max-width: calc(100vw - 24px);
-  /* 360px = 9 locales × ~40px; --menu-available-h is set by JS to the
-     distance between the trigger and whichever viewport edge the menu
-     opens toward, so the menu never overflows the viewport regardless of
-     placement direction (above or below the trigger). The 60vh cap keeps
-     the menu from feeling cramped on short viewports (mobile landscape,
-     ~400–500px tall). */
-  max-height: min(360px, 60vh, var(--menu-available-h, 360px));
+  /* 7 locales × ~58px + menu chrome (padding, gap, border) ≈ 428px;
+     --menu-available-h is set by JS to the distance between the trigger
+     and whichever viewport edge the menu opens toward, so the menu never
+     overflows the viewport regardless of placement direction. The 60vh
+     cap keeps the menu from feeling cramped on short viewports. */
+  max-height: min(428px, 60vh, var(--menu-available-h, 428px));
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
@@ -1378,7 +1456,6 @@ code {
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 40px;
   padding: 10px 12px;
   border: 0;
   border-radius: 9px;
@@ -2626,24 +2703,44 @@ code {
 }
 .tab-panel-toolbar {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
+  /* Older browsers ignore row-gap on flex with wrap — explicit row-gap keeps
+     the wrapped row visually separated rather than flush against the pill. */
+  row-gap: 8px;
 }
-.tab-panel-toolbar .toolbar-left,
+.tab-panel-toolbar .toolbar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+}
 .tab-panel-toolbar .toolbar-right {
   display: flex;
   gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
   min-width: 0;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 .tab-panel-toolbar .toolbar-search {
   position: relative;
-  flex: 1 1 240px;
-  width: min(280px, 100%);
-  max-width: 100%;
+  flex: 1 1 180px;
+  min-width: 140px;
+  max-width: 280px;
+}
+/* Narrow columns (entry tab content sometimes lands at ~570px wide) — keep
+   the segmented pill on its own row above the search/view toggle so the
+   search input never collapses into a tiny stub squeezed between two pills. */
+@media (max-width: 720px) {
+  .tab-panel-toolbar { flex-direction: column; align-items: stretch; }
+  .tab-panel-toolbar .toolbar-left { justify-content: flex-start; }
+  .tab-panel-toolbar .toolbar-right { justify-content: space-between; }
+  .tab-panel-toolbar .toolbar-search { max-width: none; }
 }
 .tab-panel-toolbar .toolbar-search input {
   padding-left: 30px;
@@ -3304,6 +3401,7 @@ code {
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   overflow-x: auto;
+  overflow-y: hidden;
   flex-wrap: nowrap;
   height: 44px;
   position: sticky;
@@ -3481,6 +3579,12 @@ code {
   font-weight: 600;
   padding: 12px 20px 6px;
 }
+.df-section-count {
+  margin-left: 8px;
+  color: var(--text-faint);
+  font-weight: 500;
+  letter-spacing: 0;
+}
 .df-row {
   display: grid;
   grid-template-columns: 36px 1fr auto auto;
@@ -3551,6 +3655,23 @@ code {
 }
 .df-row:hover .df-row-menu { opacity: 1; }
 .df-row-menu:hover { background: var(--border); color: var(--text); }
+.df-section-more {
+  margin: 6px 20px 10px;
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+.df-section-more:hover:not(:disabled) {
+  background: var(--bg-muted);
+  color: var(--text);
+}
 .df-row-collapse {
   background: transparent;
   border: none;
@@ -3843,6 +3964,11 @@ code {
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+.comment-frame-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
 }
 .comment-overlay-layer {
   position: absolute;
@@ -5798,8 +5924,15 @@ code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.6;
-  white-space: pre;
-  overflow: auto;
+  /* Wrap long lines instead of forcing the side pane to scroll horizontally —
+     DESIGN.md prose can have 200+ char paragraphs that otherwise produce a
+     scrollbar inside the modal. `overflow-wrap: anywhere` keeps long
+     hyphenated tokens (URLs, file paths) from blowing out the column. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-y: auto;
+  overflow-x: hidden;
   color: var(--text);
   background: var(--bg-panel);
   flex: 1;
@@ -5862,6 +5995,35 @@ code {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 8px;
+}
+.examples-search {
+  position: relative;
+  width: min(360px, 100%);
+}
+.examples-search input {
+  width: 100%;
+  padding: 7px 12px 7px 32px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.examples-search input::placeholder { color: var(--text-faint); }
+.examples-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.examples-search .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
 }
 .examples-filter-row {
   display: flex;
@@ -6353,6 +6515,7 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
    ============================================================ */
 .viewer-action[data-coming-soon='true'] {
   position: relative;
+  z-index: 5;
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -6363,7 +6526,7 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--text-strong);
+  background: rgba(17, 24, 39, 0.95);
   color: white;
   font-size: 10.5px;
   padding: 4px 8px;
@@ -6380,6 +6543,7 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 .viewer-action[data-coming-soon='true']:hover::after { opacity: 1; }
 .viewer-toggle[data-coming-soon='true'] {
   position: relative;
+  z-index: 5;
   opacity: 0.55;
   cursor: not-allowed;
 }
@@ -6390,7 +6554,7 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   bottom: calc(100% + 6px);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--text-strong);
+  background: rgba(17, 24, 39, 0.95);
   color: white;
   font-size: 10.5px;
   padding: 4px 8px;
@@ -6924,8 +7088,13 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 
 .pet-sprite {
   position: relative;
-  width: 56px;
-  height: 56px;
+  /* The overlay sprite was 56px which read as a tiny postage stamp
+     against a 1280px+ canvas — bumped to 96px so the pet feels like
+     a present companion rather than a thumbnail. The image-mode
+     children inherit width/height: 100% via .pet-image, so atlas /
+     strip / static pets all scale up automatically. */
+  width: 96px;
+  height: 96px;
   background: transparent;
   border: 0;
   box-shadow: none;
@@ -6942,20 +7111,23 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
 }
 .pet-sprite:active { cursor: grabbing; }
 .pet-sprite-glyph {
-  font-size: 30px;
+  /* Glyph font-size scales with the sprite box (~0.55 ratio) so
+     emoji-only built-ins and the avatar mark stay legible at the
+     larger overlay size. */
+  font-size: 52px;
   line-height: 1;
   animation: var(--pet-anim, pet-float) 3.4s ease-in-out infinite;
   filter: drop-shadow(0 1px 0 rgba(0,0,0,0.08));
 }
 .pet-sprite-shadow {
   position: absolute;
-  bottom: -10px;
+  bottom: -12px;
   left: 50%;
-  width: 36px;
-  height: 6px;
+  width: 64px;
+  height: 8px;
   background: rgba(0, 0, 0, 0.18);
   border-radius: 50%;
-  filter: blur(3px);
+  filter: blur(4px);
   transform: translateX(-50%);
   animation: pet-shadow 3.4s ease-in-out infinite;
 }
@@ -8251,4 +8423,43 @@ body.entry-resizing { cursor: col-resize; user-select: none; }
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+/* --- Arabic & Persian Comfort Pass --- */
+[dir="rtl"] {
+  --sans: "Cairo", "Inter", "Vazirmatn", "Noto Sans Arabic", "Segoe UI Arabic", "Tahoma", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Scope line-height increase to prose and chat to avoid breaking compact UI chrome */
+[dir="rtl"] .prose,
+[dir="rtl"] .chat-message,
+[dir="rtl"] .msg .user-text {
+  line-height: 1.7;
+}
+
+[dir="rtl"] .avatar-item,
+[dir="rtl"] .settings-tab,
+[dir="rtl"] .ds-item-name {
+  text-align: right;
+}
+
+[dir="rtl"] .app-chrome-back svg,
+[dir="rtl"] .back-btn svg,
+[dir="rtl"] .icon-btn svg[data-lucide="chevron-left"],
+[dir="rtl"] .icon-btn svg[data-lucide="chevron-right"],
+[dir="rtl"] .icon-btn svg[data-lucide="arrow-left"],
+[dir="rtl"] .icon-btn svg[data-lucide="arrow-right"],
+[dir="rtl"] .newproj-tabs-arrow svg,
+[dir="rtl"] .icon-only svg[data-lucide="chevron-left"],
+[dir="rtl"] .icon-only svg[data-lucide="chevron-right"],
+[dir="rtl"] .icon-only svg[data-lucide="arrow-left"],
+[dir="rtl"] .icon-only svg[data-lucide="arrow-right"],
+[dir="rtl"] .pet-rail-collapse svg,
+[dir="rtl"] .welcome-pet-teaser svg {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] .title,
+[dir="rtl"] .meta {
+  text-align: right;
 }
