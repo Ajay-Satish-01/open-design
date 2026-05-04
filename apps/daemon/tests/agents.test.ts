@@ -53,6 +53,12 @@ afterEach(() => {
   }
 });
 
+test('AGENT_DEFS ids are unique', () => {
+  const ids = AGENT_DEFS.map((a) => a.id);
+  const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+  assert.deepEqual(dupes, [], `duplicate agent ids: ${JSON.stringify(dupes)}`);
+});
+
 test('codex args disable plugins when OD_CODEX_DISABLE_PLUGINS is 1', () => {
   process.env.OD_CODEX_DISABLE_PLUGINS = '1';
 
