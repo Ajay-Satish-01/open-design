@@ -14,6 +14,7 @@ const codex = AGENT_DEFS.find((agent) => agent.id === 'codex');
 const copilot = AGENT_DEFS.find((agent) => agent.id === 'copilot');
 const cursorAgent = AGENT_DEFS.find((agent) => agent.id === 'cursor-agent');
 const kiro = AGENT_DEFS.find((agent) => agent.id === 'kiro');
+const kilo = AGENT_DEFS.find((agent) => agent.id === 'kilo');
 const vibe = AGENT_DEFS.find((agent) => agent.id === 'vibe');
 const claude = AGENT_DEFS.find((agent) => agent.id === 'claude');
 const devin = AGENT_DEFS.find((agent) => agent.id === 'devin');
@@ -216,6 +217,21 @@ test('kiro fetchModels falls back to fallbackModels when detection fails', async
   assert.equal(result, null);
   assert.ok(Array.isArray(kiro.fallbackModels));
   assert.equal(kiro.fallbackModels[0].id, 'default');
+});
+
+test('kilo args use acp subcommand for json-rpc streaming', () => {
+  const args = kilo.buildArgs('', [], [], {});
+
+  assert.deepEqual(args, ['acp']);
+  assert.equal(kilo.streamFormat, 'acp-json-rpc');
+});
+
+test('kilo fetchModels falls back to fallbackModels when detection fails', async () => {
+  const result = await kilo.fetchModels('/nonexistent/kilo').catch(() => null);
+
+  assert.equal(result, null);
+  assert.ok(Array.isArray(kilo.fallbackModels));
+  assert.equal(kilo.fallbackModels[0].id, 'default');
 });
 
 // ---- reasoning-effort clamp ------------------------------------------------

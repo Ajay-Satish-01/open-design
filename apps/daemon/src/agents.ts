@@ -584,6 +584,31 @@ export const AGENT_DEFS = [
     streamFormat: 'acp-json-rpc',
   },
   {
+    id: 'kilo',
+    name: 'Kilo',
+    bin: 'kilo',
+    versionArgs: ['--version'],
+    fetchModels: async (resolvedBin) =>
+      detectAcpModels({
+        bin: resolvedBin,
+        args: ['acp'],
+        timeoutMs: 15_000,
+        defaultModelOption: DEFAULT_MODEL_OPTION,
+      }),
+    fallbackModels: [
+      DEFAULT_MODEL_OPTION,
+      { id: 'anthropic/claude-sonnet-latest', label: 'Claude Sonnet (latest)' },
+      { id: 'anthropic/claude-opus-latest', label: 'Claude Opus (latest)' },
+      { id: 'anthropic/claude-haiku-latest', label: 'Claude Haiku (latest)' },
+      { id: 'openai/gpt-latest', label: 'GPT (latest)' },
+      { id: 'openai/gpt-mini-latest', label: 'GPT Mini (latest)' },
+      { id: 'google/gemini-pro-latest', label: 'Gemini Pro (latest)' },
+      { id: 'google/gemini-flash-latest', label: 'Gemini Flash (latest)' },
+    ],
+    buildArgs: () => ['acp'],
+    streamFormat: 'acp-json-rpc',
+  },
+  {
     id: 'vibe',
     name: 'Mistral Vibe CLI',
     bin: 'vibe-acp',
